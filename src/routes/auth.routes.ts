@@ -76,6 +76,7 @@ router.post('/signup', asyncHandler(signup));
  * /api/auth/login:
  *   post:
  *     summary: 로그인
+ *     description: role이 technician이면 응답에 vendor(연결된 업체 프로필)가 함께 온다.
  *     tags: [Auth]
  *     requestBody:
  *       required: true
@@ -101,6 +102,10 @@ router.post('/signup', asyncHandler(signup));
  *               properties:
  *                 user:
  *                   $ref: '#/components/schemas/User'
+ *                 vendor:
+ *                   allOf:
+ *                     - $ref: '#/components/schemas/Vendor'
+ *                   description: role이 technician일 때만 존재하는 업체 정보 (vendors 테이블)
  *                 session:
  *                   $ref: '#/components/schemas/AuthSession'
  *       400:

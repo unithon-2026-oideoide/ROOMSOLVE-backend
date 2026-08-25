@@ -143,5 +143,23 @@ export async function login(req: Request, res: Response) {
     return res.status(500).json({ error: profileError.message });
   }
 
-  return res.json({ user: profile, session: data.session });
+  // technician이면 vendor 프로필도 같이 내려준다. signup 응답은 이미 vendor를
+  // 포함하지만, 로그인은 계정을 처음 만든 세션이 아니므로 매번 여기서 다시
+  // 조회해야 한다 — 그렇지 않으면 프론트가 vendors.id(quotes.vendor_id에 필요한
+  // 값)를 얻을 방법이 로그인 한 번뿐인 signup 응답 말고는 없다.
+  if (profile.role !== 'technician') {
+    return res.json({ user: profile, session: data.session });
+  }
+
+  const { data: vendor, error: vendorError } = await supabaseAdmin
+    .from('vendors')
+    .select('*')
+    .eq('user_id', data.user.id)
+    .maybeSingle();
+
+  if (vendorError) {
+    return res.status(500).json({ error: vendorError.message });
+  }
+
+  return res.json({ user: profile, vendor, session: data.session });
 }
