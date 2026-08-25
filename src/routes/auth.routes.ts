@@ -27,8 +27,7 @@ const router = Router();
  *               name:
  *                 type: string
  *               role:
- *                 type: string
- *                 enum: [tenant, landlord, technician]
+ *                 $ref: '#/components/schemas/UserRole'
  *               phone:
  *                 type: string
  *     responses:

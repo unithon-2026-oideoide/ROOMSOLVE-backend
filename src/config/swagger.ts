@@ -28,12 +28,31 @@ const swaggerSpec = swaggerJSDoc({
             error: { type: 'string', example: '잘못된 요청입니다.' },
           },
         },
+        // 아래 네 개는 여러 스키마/요청 바디가 공유하는 enum이라 여기 한 곳에서만
+        // 정의하고 나머지는 $ref로 참조한다. 값이 바뀌면(=DB CHECK 제약이 바뀌면)
+        // 여기 하나만 고치면 된다.
+        UserRole: {
+          type: 'string',
+          enum: ['tenant', 'landlord', 'technician'],
+        },
+        Category: {
+          type: 'string',
+          enum: ['plumbing', 'electrical', 'heating', 'appliance', 'door_window', 'interior', 'pest', 'other'],
+        },
+        Severity: {
+          type: 'string',
+          enum: ['low', 'medium', 'high', 'emergency'],
+        },
+        RecommendedPath: {
+          type: 'string',
+          enum: ['self_fix', 'manufacturer_as', 'vendor_match'],
+        },
         User: {
           type: 'object',
           properties: {
             id: { type: 'string', format: 'uuid' },
             name: { type: 'string' },
-            role: { type: 'string', enum: ['tenant', 'landlord', 'technician'] },
+            role: { $ref: '#/components/schemas/UserRole' },
             phone: { type: 'string', nullable: true },
             created_at: { type: 'string', format: 'date-time' },
           },
@@ -58,17 +77,9 @@ const swaggerSpec = swaggerJSDoc({
             landlord_id: { type: 'string', format: 'uuid' },
             photo_url: { type: 'string', format: 'uri' },
             description: { type: 'string', nullable: true },
-            category: {
-              type: 'string',
-              nullable: true,
-              enum: ['plumbing', 'electrical', 'heating', 'appliance', 'door_window', 'interior', 'pest', 'other'],
-            },
-            severity: { type: 'string', nullable: true, enum: ['low', 'medium', 'high', 'emergency'] },
-            recommended_path: {
-              type: 'string',
-              nullable: true,
-              enum: ['self_fix', 'manufacturer_as', 'vendor_match'],
-            },
+            category: { allOf: [{ $ref: '#/components/schemas/Category' }], nullable: true },
+            severity: { allOf: [{ $ref: '#/components/schemas/Severity' }], nullable: true },
+            recommended_path: { allOf: [{ $ref: '#/components/schemas/RecommendedPath' }], nullable: true },
             self_fix_guide: { type: 'string', nullable: true },
             status: { type: 'string', example: 'requested' },
             created_at: { type: 'string', format: 'date-time' },
@@ -79,10 +90,7 @@ const swaggerSpec = swaggerJSDoc({
           properties: {
             id: { type: 'string', format: 'uuid' },
             landlord_id: { type: 'string', format: 'uuid' },
-            category: {
-              type: 'string',
-              enum: ['plumbing', 'electrical', 'heating', 'appliance', 'door_window', 'interior', 'pest', 'other'],
-            },
+            category: { $ref: '#/components/schemas/Category' },
             auto_approve_limit: { type: 'integer', example: 50000 },
             created_at: { type: 'string', format: 'date-time' },
           },
@@ -131,10 +139,7 @@ const swaggerSpec = swaggerJSDoc({
             name: { type: 'string' },
             categories: {
               type: 'array',
-              items: {
-                type: 'string',
-                enum: ['plumbing', 'electrical', 'heating', 'appliance', 'door_window', 'interior', 'pest', 'other'],
-              },
+              items: { $ref: '#/components/schemas/Category' },
             },
             region: { type: 'string', nullable: true, description: '컬럼만 존재 — 매칭 필터에는 아직 미사용' },
             phone: { type: 'string', nullable: true },
@@ -170,10 +175,7 @@ const swaggerSpec = swaggerJSDoc({
           type: 'object',
           properties: {
             id: { type: 'string', format: 'uuid' },
-            category: {
-              type: 'string',
-              enum: ['plumbing', 'electrical', 'heating', 'appliance', 'door_window', 'interior', 'pest', 'other'],
-            },
+            category: { $ref: '#/components/schemas/Category' },
             manufacturer_name: { type: 'string' },
             as_phone: { type: 'string', nullable: true },
             as_url: { type: 'string', nullable: true },
