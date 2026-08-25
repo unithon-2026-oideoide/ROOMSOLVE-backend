@@ -18,6 +18,50 @@ const upload = multer({
 
 const router = Router();
 
+/**
+ * @swagger
+ * /api/uploads:
+ *   post:
+ *     summary: 사진 업로드 (Supabase Storage)
+ *     description: 이미지를 Supabase Storage에 업로드하고 public URL을 반환. 프론트는 여기서 받은 url을 POST /api/reports의 photo_url에 넣어서 보내면 됨.
+ *     tags: [Uploads]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [file]
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *                 description: jpg, jpeg, png, webp만 허용, 최대 10MB
+ *     responses:
+ *       201:
+ *         description: 업로드 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 url:
+ *                   type: string
+ *                   format: uri
+ *                   example: https://xxxx.supabase.co/storage/v1/object/public/report-photos/171234-uuid-photo.jpg
+ *       400:
+ *         description: 파일 누락, 허용되지 않는 형식, 또는 10MB 초과
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Storage 업로드 실패
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 router.post(
   '/',
   (req, res, next) => {

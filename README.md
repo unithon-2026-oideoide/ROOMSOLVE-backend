@@ -20,6 +20,11 @@ npm run dev
 
 서버가 뜨면 `GET /health` 로 헬스체크 가능.
 
+API 문서: 서버 실행 후 http://localhost:3000/api-docs (또는 실서버
+http://134.185.108.221:3000/api-docs)에서 확인 및 테스트 가능. Swagger UI의
+Authorize 버튼으로 로그인 후 받은 access token을 넣으면 인증 필요한 API도
+바로 테스트 가능.
+
 ## 환경 변수
 
 `.env.example` 참고. 필수 값:
@@ -36,6 +41,7 @@ npm run dev
 ```
 src/
   config/supabase.ts   # Supabase 클라이언트 (anon / service role)
+  config/swagger.ts    # swagger-jsdoc 설정 (/api-docs)
   routes/               # 라우트 정의
   controllers/          # 라우트 핸들러 로직
   middleware/            # asyncHandler, 에러 핸들러, 인증 미들웨어
