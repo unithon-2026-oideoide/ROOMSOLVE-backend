@@ -6,6 +6,7 @@ import {
   listReports,
   getReport,
   analyzeReport,
+  chatSelfRepair,
   getManufacturerAs,
 } from '../controllers/reports.controller';
 
@@ -287,6 +288,119 @@ reportsRouter.get('/:id', asyncHandler(getReport));
  *               $ref: '#/components/schemas/Error'
  */
 reportsRouter.post('/analyze', asyncHandler(analyzeReport));
+
+/**
+ * @swagger
+ * /api/reports/chat:
+ *   post:
+ *     summary: 자가수리 AI 챗봇 상담
+ *     description: |
+ *       세입자 플로우는 직렬이다 — 사진 → AI 진단 → **자가수리 상담** → (막히면) 업체 추천.
+ *       진단 결과가 무엇이든 일단 이 상담을 거친다.
+ *
+ *       **무상태다.** 대화 기록은 클라이언트가 들고 있다가 매 요청에 함께 보낸다.
+ *       DB는 건드리지 않으므로, `escalate`가 true가 된 뒤 리포트 상태를 바꾸는 것은
+ *       기존 리포트 API의 몫이다. 비용 때문에 최근 20턴만 모델에 보낸다.
+ *
+ *       AI를 부르지 않고 코드가 바로 끊는 경우가 둘 있다:
+ *       - `severity`가 `emergency` → 감전·가스 등 즉시 조치가 필요한 상황에서
+ *         세입자를 대화에 붙잡아 두면 안 되므로 곧바로 업체로 넘긴다.
+ *       - `recommended_path`가 `manufacturer_as` → 직접 분해하면 보증이 깨질 수 있어
+ *         제조사 A/S로 넘긴다.
+ *
+ *       첫 턴은 `messages`를 빈 배열로 보내면 된다. 챗봇이 자가수리 가이드를 먼저 제시한다.
+ *     tags: [Reports]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [context]
+ *             properties:
+ *               context:
+ *                 type: object
+ *                 required: [category, severity]
+ *                 description: POST /api/reports/analyze 응답을 그대로 넣으면 된다.
+ *                 properties:
+ *                   category:
+ *                     type: string
+ *                     enum: [plumbing, electrical, heating, appliance, door_window, interior, pest, other]
+ *                   severity:
+ *                     type: string
+ *                     enum: [low, medium, high, emergency]
+ *                   recommended_path:
+ *                     type: string
+ *                     enum: [self_fix, manufacturer_as, vendor_match]
+ *                   self_fix_guide:
+ *                     type: string
+ *                     nullable: true
+ *               messages:
+ *                 type: array
+ *                 description: 지금까지의 대화. 첫 턴은 빈 배열.
+ *                 items:
+ *                   type: object
+ *                   required: [role, content]
+ *                   properties:
+ *                     role:
+ *                       type: string
+ *                       enum: [user, assistant]
+ *                     content:
+ *                       type: string
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: 상담 응답
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [reply, escalate, escalate_to]
+ *               properties:
+ *                 reply:
+ *                   type: string
+ *                   description: 세입자에게 보여줄 답변
+ *                 escalate:
+ *                   type: boolean
+ *                   description: 자가수리로 해결이 어려워 다음 단계로 넘어가야 하면 true
+ *                 escalate_to:
+ *                   type: string
+ *                   nullable: true
+ *                   enum: [vendor_match, manufacturer_as]
+ *                   description: escalate가 true일 때 어디로 갈지. false면 null.
+ *       400:
+ *         description: context 누락 또는 category/severity 값이 허용 목록 밖
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: 토큰 누락 또는 만료
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       429:
+ *         description: AI 호출 한도 초과
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       502:
+ *         description: AI 호출 실패 또는 응답 해석 실패
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       503:
+ *         description: AI 서버 혼잡 또는 GEMINI_API_KEY 미설정
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+reportsRouter.post('/chat', asyncHandler(chatSelfRepair));
 
 export default reportsRouter;
 
