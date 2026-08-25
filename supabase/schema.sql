@@ -12,6 +12,9 @@
 --   db/002_vendors_rating_active.sql vendors.rating / is_active 추가 + quotes 부분 인덱스
 --   db/007_vendors_signup_link.sql   vendors.user_id / business_number 추가 (수리업체 가입)
 --   db/008_landlord_tenant_link.sql  users.landlord_code / linked_landlord_id 추가 (초대 코드 매칭)
+--   db/009_quote_visit_and_reject.sql quotes.status CHECK(+rejected) / quotes.proposed_visit_at /
+--                                    reports.available_times
+--   db/010_repair_completion_photo.sql repair_status_timeline.photo_url
 --
 -- NOT NULL과 기본값은 PostgREST가 노출하는 실제 스키마에서 읽어 맞춘 것이다.
 -- 실제 DB는 PK와 핵심 FK 말고는 NOT NULL이 거의 걸려 있지 않다. 제약이 느슨하다는
@@ -25,7 +28,8 @@
 --
 -- status 계열은 CHECK가 없다. 실제로 쓰이는 값은 아래와 같다.
 --   reports.status                : pending (기본값) → approved | rejected
---   quotes.status                 : pending (기본값) → recommended | selected
+--   quotes.status                 : recommended | selected | rejected (db/009로 CHECK가 걸렸다)
+--                                   selected 하나를 고르면 같은 신고의 나머지는 자동 rejected
 --   repair_status_timeline.status : scheduled | confirmed | in_progress | done
 
 
@@ -82,6 +86,8 @@ create table public.reports (
   recommended_path text check (recommended_path in ('self_fix', 'manufacturer_as', 'vendor_match')),
   -- 자가조치 가이드. types/index.ts와 Swagger 모두 문자열로 확정돼 있다.
   self_fix_guide   text,
+  -- 세입자가 집에 있는 시간대. 자유 텍스트. db/009_quote_visit_and_reject.sql
+  available_times  text,
   status           text default 'pending',
   created_at       timestamptz default now()
 );
@@ -146,7 +152,12 @@ create table public.quotes (
   report_id  uuid not null references public.reports (id) on delete cascade,
   vendor_id  uuid not null references public.vendors (id) on delete cascade,
   price      integer not null check (price >= 0),
-  status     text default 'pending',
+  -- ⚠️ 기본값은 'pending'이지만 db/009_quote_visit_and_reject.sql이 CHECK를 걸어서
+  --    status를 명시하지 않은 insert는 이제 통과하지 않는다. createQuote는 항상 'recommended'를 넣는다.
+  status     text default 'pending' check (status in ('recommended', 'selected', 'rejected')),
+  -- 업체가 제안한 방문 시간. selected로 바뀌는 순간 이 값으로 repair_schedule이 자동 생성된다.
+  -- db/009_quote_visit_and_reject.sql
+  proposed_visit_at timestamptz,
   is_outlier boolean default false,
   created_at timestamptz default now()
 );
@@ -201,6 +212,8 @@ create table public.repair_status_timeline (
   id         uuid primary key default gen_random_uuid(),
   report_id  uuid not null references public.reports (id) on delete cascade,
   status     text not null,
+  -- 수리 완료 사진. status가 'done'일 때만 채워진다. db/010_repair_completion_photo.sql
+  photo_url  text,
   changed_at timestamptz default now()
 );
 

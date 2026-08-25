@@ -11,6 +11,9 @@ import { supabaseAdmin } from '../config/supabase';
 // NOTE: 인증이 없으므로 technician_id 는 요청 body 로 받는다.
 //       (users(id) FK가 걸려 있어 실제 존재하는 사용자여야 INSERT가 통과한다.)
 
+// 수리 완료 상태값. 이 상태로 바꿀 때만 완료 사진(photo_url)을 필수로 받는다.
+export const COMPLETION_STATUS = 'done';
+
 async function addTimelineEntry(reportId: string, status: string) {
   return supabaseAdmin.from('repair_status_timeline').insert({ report_id: reportId, status });
 }
@@ -97,16 +100,25 @@ export async function confirmSchedule(req: Request, res: Response) {
 }
 
 // POST /api/repair/status — 수리 진행 상태 변경. 타임라인에 이력 한 줄을 남긴다.
+// status가 'done'(완료)이면 완료 사진 photo_url이 필수다. 그 외 상태에서는 무시된다.
 export async function changeRepairStatus(req: Request, res: Response) {
-  const { report_id, status } = req.body as { report_id: string; status: string };
+  const { report_id, status, photo_url } = req.body as {
+    report_id: string;
+    status: string;
+    photo_url?: string;
+  };
 
   if (!report_id || !status) {
     return res.status(400).json({ error: 'report_id, status는 필수입니다.' });
   }
+  if (status === COMPLETION_STATUS && !photo_url) {
+    return res.status(400).json({ error: `status가 '${COMPLETION_STATUS}'이면 완료 사진 photo_url이 필수입니다.` });
+  }
 
   const { data, error } = await supabaseAdmin
     .from('repair_status_timeline')
-    .insert({ report_id, status })
+    // 완료가 아닌 상태에 사진이 붙어 오면 버린다 — 타임라인에서 완료 사진의 의미가 흐려진다.
+    .insert({ report_id, status, photo_url: status === COMPLETION_STATUS ? photo_url : null })
     .select()
     .single();
 
