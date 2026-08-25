@@ -94,7 +94,7 @@ src/
 
 - `POST /api/auth/login`
 - `POST /api/auth/signup`
-- `PATCH /api/users/:id/role`
+- `PATCH /api/users/link-landlord`
 - `GET /api/landlord/requests`
 - `GET /api/landlord/requests/:id`
 - `PATCH /api/landlord/requests/:id/approve`
@@ -105,6 +105,13 @@ src/
 > 실제 스키마와 다르면 `src/controllers/landlord.controller.ts`의 쿼리를 맞춰서 수정 필요.
 > `GET /api/landlord/properties`는 별도 `properties` 테이블이 아직 없어서, 리포트에 연결된
 > tenant 목록으로 임시 대체함 — 테이블이 생기면 교체할 것.
+
+**임대인-세입자 매칭 (초대 코드, db/008):** `properties` 테이블이 없어 세입자가
+자기 `landlord_id`를 알 방법이 없던 문제를, 임대인이 회원가입 시 자동 발급받는
+6자리 코드(`users.landlord_code`)로 임시 해결함. 세입자가 `PATCH
+/api/users/link-landlord`에 그 코드를 보내면 `users.linked_landlord_id`가
+채워지고, 이후 `POST /api/reports`에서 `landlord_id`를 생략하면 이 값을 대신
+쓴다. `properties` 테이블이 생기면 이 매칭 로직은 걷어내고 교체할 것.
 
 사진 업로드는 `POST /api/uploads` (multipart, 필드명 `file`)로 처리됨 —
 본인(서버 오너) 담당, 이미 구현 완료. 한 번에 한 장씩 올리므로, 프론트는 사진 수만큼
@@ -121,9 +128,10 @@ src/
 
 파일: `src/routes/reports.routes.ts`, `src/controllers/reports.controller.ts`
 
-`tenant_id`는 body로 받지 않고 인증 토큰에서 꺼냄. `landlord_id`는 여전히 필수 —
-`properties`(호실) 테이블이 없어 서버에서 세입자→임대인을 유도할 경로가 없기 때문.
-프론트가 세입자당 landlord_id를 미리 확보해서 같이 보내야 함.
+`tenant_id`는 body로 받지 않고 인증 토큰에서 꺼냄. `landlord_id`는 이제 생략
+가능함 — 위 "임대인-세입자 매칭" 절에서 설명한 `linked_landlord_id`를 대신 쓴다.
+`properties`(호실) 테이블이 없어 서버에서 세입자→임대인을 유도할 경로가 없다는
+근본 문제는 그대로라, 이건 코드 기반의 임시 해결책이다.
 
 `GET /api/reports`와 `GET /api/reports/:id`는 **본인 신고만** 반환함. 남의 신고 id로
 조회하면 403이 아니라 404 — 403이면 그 id가 존재한다는 사실이 새기 때문.

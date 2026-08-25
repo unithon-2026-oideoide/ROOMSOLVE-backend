@@ -12,6 +12,12 @@ export interface User {
   name: string;
   role: UserRole;
   phone: string | null;
+  // db/008_landlord_tenant_link.sql. role이 landlord인 계정에만 회원가입 시 자동
+  // 발급되는 6자리 초대 코드. 세입자가 이 코드를 입력해 linked_landlord_id를 채운다.
+  landlord_code: string | null;
+  // db/008_landlord_tenant_link.sql. 이 사용자가 PATCH /api/users/link-landlord로
+  // 연결한 임대인의 id. reports.landlord_id를 생략하고 신고하면 이 값을 대신 쓴다.
+  linked_landlord_id: string | null;
   created_at: string;
 }
 
