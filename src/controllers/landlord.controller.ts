@@ -100,6 +100,26 @@ export async function createAutoApprovalPolicy(req: AuthedRequest, res: Response
   return res.status(201).json({ policy: data });
 }
 
+// GET /api/landlord/auto-approval-policy — 이 임대인이 저장해둔 카테고리별
+// 자동승인 한도를 전부 반환한다. 예전엔 이 조회 API가 없어서
+// auto_approval_setting_screen.dart(프론트)가 화면을 열 때마다 저장된 값을
+// 못 읽고 하드코딩된 기본값으로 리셋됐고, "설정 저장"을 누르면 그 기본값으로
+// 기존 설정을 덮어썼다.
+export async function listAutoApprovalPolicies(req: AuthedRequest, res: Response) {
+  const landlordId = req.user!.id;
+
+  const { data, error } = await supabaseAdmin
+    .from('landlord_auto_approval_policy')
+    .select('*')
+    .eq('landlord_id', landlordId)
+    .order('category');
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+  return res.json({ policies: data ?? [] });
+}
+
 export async function listProperties(req: AuthedRequest, res: Response) {
   const landlordId = req.user!.id;
 
