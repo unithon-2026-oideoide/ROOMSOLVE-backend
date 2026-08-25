@@ -44,6 +44,36 @@ Authorize 버튼으로 로그인 후 받은 access token을 넣으면 인증 필
   작업 → `develop`으로 머지 → `develop`이 문제 없이 돌아가면 그때 `main`으로 머지.
 - 즉 `내 브랜치 → develop → main` 순서. `main`으로 바로 머지하지 않는다.
 
+### develop 로컬 테스트 방법
+
+별도 스테이징 서버 없이, 각자 로컬에서 develop을 띄워서 확인하고 main으로 올린다.
+
+```bash
+git checkout develop
+git pull
+
+npm install        # package.json이 바뀌었을 수 있으니 항상 먼저
+npm run build       # 타입 에러부터 확인 — 여기서 걸러지는 게 제일 빠름
+npm run dev          # http://localhost:3000/api-docs 에서 Swagger로 실제 호출까지 확인
+```
+
+주의: 로컬 서버든, 실서버(134.185.108.221)든 전부 같은 Supabase 프로젝트(같은 DB)를
+보고 있다. 브랜치별로 DB가 분리되는 게 아니므로:
+
+- 테스트용으로 만든 계정/리포트/견적 등은 확인 후 지워두기 (Supabase 대시보드 Table
+  Editor에서 직접 지우거나, service role 키로 임시 스크립트 돌려서 정리)
+- 회원가입 테스트할 땐 실제 존재하는 메일 도메인 필요 (Supabase가 존재하지 않는
+  도메인은 거부함) — `본인이메일+test1@gmail.com` 같은 서브어드레싱 활용
+- `landlord_auto_approval_policy`처럼 unique 제약이 걸린 테이블은 같은 조합으로
+  두 번 넣으면 다른 사람 테스트와 충돌할 수 있음
+
+### main으로 머지하기 전 체크리스트
+
+1. `develop`에서 `npm run build` 통과 (타입 에러 없음)
+2. `npm run dev`로 로컬 기동 확인, 바뀐 엔드포인트는 Swagger UI나 curl로 직접 호출해서
+   응답 확인
+3. 문제 없으면 `develop` → `main` 머지 후 푸시
+
 ## 프로젝트 구조
 
 ```
