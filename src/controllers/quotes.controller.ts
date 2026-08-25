@@ -61,7 +61,9 @@ export async function listQuotes(req: Request, res: Response) {
 
   const { data, error } = await supabaseAdmin
     .from('quotes')
-    .select('*')
+    // vendor_id가 vendors를 한 번만 참조하므로 PostgREST가 조인 대상을 자동으로 고른다.
+    // 견적 비교 화면에서 업체명을 띄우려면 필요하다.
+    .select('*, vendor:vendors(id, name, rating, phone)')
     .eq('report_id', reportId)
     .order('created_at', { ascending: false });
 

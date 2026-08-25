@@ -112,6 +112,16 @@ const swaggerSpec = swaggerJSDoc({
             created_at: { type: 'string', format: 'date-time' },
             isOutlier: { type: 'boolean', description: '해당 report 견적들의 중앙값 * 2를 초과하면 true' },
             outlierReason: { type: 'string', nullable: true, example: '평균 대비 과도하게 높음' },
+            vendor: {
+              type: 'object',
+              description: '견적을 낸 업체 정보 (vendors 조인). 견적 비교 화면의 업체명 표시용.',
+              properties: {
+                id: { type: 'string', format: 'uuid' },
+                name: { type: 'string', example: '가온하우스설비' },
+                rating: { type: 'number', example: 4.6 },
+                phone: { type: 'string', nullable: true },
+              },
+            },
           },
         },
         Vendor: {

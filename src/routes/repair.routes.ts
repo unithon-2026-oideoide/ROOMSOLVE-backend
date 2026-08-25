@@ -64,16 +64,27 @@ router.post('/schedule', asyncHandler(createSchedule));
  * @swagger
  * /api/repair/schedule:
  *   get:
- *     summary: 리포트별 방문 일정 목록 조회
- *     description: scheduled_at 오름차순. 각 항목에 담당 technician 정보(id, name, phone)가 조인되어 포함됨.
+ *     summary: 방문 일정 목록 조회 (리포트별 또는 기사별)
+ *     description: >
+ *       scheduled_at 오름차순. 각 항목에 담당 technician 정보(id, name, phone)가 조인되어 포함됨.
+ *       reportId 또는 technicianId 중 최소 하나가 필요하며, 둘 다 주면 AND로 걸린다.
+ *       기사 홈의 배정 작업 목록은 technicianId로 조회한다.
  *     tags: [Repair]
  *     parameters:
  *       - in: query
  *         name: reportId
- *         required: true
+ *         required: false
  *         schema:
  *           type: string
  *           format: uuid
+ *         description: 한 신고 건의 일정을 조회할 때
+ *       - in: query
+ *         name: technicianId
+ *         required: false
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: 기사에게 배정된 작업 목록을 조회할 때
  *     responses:
  *       200:
  *         description: 조회 성공
@@ -101,7 +112,7 @@ router.post('/schedule', asyncHandler(createSchedule));
  *                                 type: string
  *                                 nullable: true
  *       400:
- *         description: reportId 쿼리 파라미터 누락
+ *         description: reportId / technicianId 둘 다 누락
  *         content:
  *           application/json:
  *             schema:
