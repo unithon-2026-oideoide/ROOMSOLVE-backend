@@ -74,6 +74,42 @@ npm run dev          # http://localhost:3000/api-docs 에서 Swagger로 실제 �
    응답 확인
 3. 문제 없으면 `develop` → `main` 머지 후 푸시
 
+## 테스트 데이터
+
+DB 스키마(컬럼·제약)는 전부 `supabase/schema.sql` 하나로 재현 가능하다.
+번호가 붙어 있던 마이그레이션 이력 파일들(예전 `db/001`~`db/010`)과 SQL
+전용 시드 파일은 전부 지웠다 — 아래 테스트 계정은 전부 실제
+`POST /api/auth/signup`으로 만든 로그인 가능한 계정이라 SQL 시드가 필요
+없다(SQL로 `users`/`vendors`만 채우면 로그인이 안 돼서, 이번엔 전부
+signup API를 직접 태웠다).
+
+임대인·세입자는 모두 비밀번호 `test1234!`.
+
+| 역할 | 이름 | 이메일 | 비고 |
+|---|---|---|---|
+| 임대인 | 김임대 | `kim.landlord@gmail.com` | 초대 코드는 로그인 후 `user.landlord_code`로 확인 |
+| 세입자 | 최세입 | `choi.tenant@gmail.com` | 김임대에 연결됨 |
+| 세입자 | 심세입 | `sim.tenant@gmail.com` | 김임대에 연결됨 |
+| 수리업체 | 새지마 종합설비 | `saejima.vendor@gmail.com` | plumbing, heating, other |
+| 수리업체 | 번쩍번쩍전기 | `bunjjuk.vendor@gmail.com` | electrical, appliance, door_window |
+| 수리업체 | 훈훈보일러 | `hunhun.vendor@gmail.com` | heating, plumbing, appliance |
+| 수리업체 | 가전주치의 | `gajeon.vendor@gmail.com` | appliance, electrical, interior |
+| 수리업체 | 여닫이명장 | `yeodaji.vendor@gmail.com` | door_window, interior, other — `is_active=false`(매칭 필터 테스트용) |
+| 수리업체 | 공간연구소 | `gonggan.vendor@gmail.com` | interior, door_window, pest |
+| 수리업체 | 해충제로 | `haechung.vendor@gmail.com` | pest, other, heating |
+| 수리업체 | 만능해결단 | `manneung.vendor@gmail.com` | other, plumbing, electrical |
+
+업체마다 분야를 2~3개씩 맡고 있고, 카테고리 8종 전부 최소 2곳 이상 겹치게
+설계함(`POST /api/vendors/match`로 카테고리별 결과 확인 가능) — 견적을
+여러 업체에서 받아서 중앙값/이상치 판정(`GET /api/quotes`)을 의미 있게
+테스트하려면 한 카테고리에 업체가 여럿 있어야 하기 때문. 여닫이명장만
+비활성이라 door_window/interior/other 매칭 결과에서 빠지는 게 정상 —
+`is_active` 필터가 실제로 걸러내는지 확인하는 용도.
+
+제조사 A/S(`manufacturer_as_info`), 가전 신품가(`appliance_reference_price`)
+참고 데이터는 시딩 파일이 정리되면서 같이 지워졌다 — 그 기능을 테스트하려면
+데이터를 새로 채워야 한다.
+
 ## 프로젝트 구조
 
 ```
@@ -108,7 +144,7 @@ src/
 > 예전에는 `reports.landlord_id`(신고 당시 스냅샷)에서 뽑아서, 세입자가 초대 코드로 다른 임대인에게
 > 옮겨가도 예전 임대인 목록에 계속 남는 버그가 있었다. 지금은 연결 상태를 직접 조회해서 그 문제가 없다.
 
-**임대인-세입자 매칭 (초대 코드, db/008):** `properties` 테이블이 없어 세입자가
+**임대인-세입자 매칭 (초대 코드):** `properties` 테이블이 없어 세입자가
 자기 `landlord_id`를 알 방법이 없던 문제를, 임대인이 회원가입 시 자동 발급받는
 6자리 코드(`users.landlord_code`)로 임시 해결함. 세입자가 `PATCH
 /api/users/link-landlord`에 그 코드를 보내면 `users.linked_landlord_id`가
@@ -162,9 +198,10 @@ Gemini는 이미지 URL을 대신 받아오지 않으므로 서버가 사진을 
 넘김. 그래서 `photo_urls`의 url은 서버에서 접근 가능해야 함(Supabase Storage의
 public url이면 됨). 비용·응답시간 때문에 앞의 4장만 분석에 씀.
 
-DB: `db/003_reports_photo_urls.sql`(photo_urls 컬럼 기록 + 백필),
-`db/004_manufacturer_as_seed.sql`(제조사 A/S 시드 10건). 둘 다 재실행 안전.
-004는 이미 적용해 둠.
+DB: 컬럼(`photo_urls` 등)은 `supabase/schema.sql`에 이미 반영돼 있음. 번호가
+붙은 마이그레이션 파일들은 정리하면서 지웠음(스키마는 schema.sql 하나로
+재현 가능한 상태). 제조사 A/S 참고 데이터(`manufacturer_as_info`)는 시딩
+파일이 같이 지워졌으니, 그 기능을 테스트하려면 데이터를 새로 채워야 함.
 
 ### 팀원B (전문업체 매칭)
 
@@ -181,12 +218,11 @@ DB: `db/003_reports_photo_urls.sql`(photo_urls 컬럼 기록 + 백필),
 파일: `src/routes/{vendors,quotes,repair}.routes.ts`,
 `src/controllers/{vendors,quotes,repair}.controller.ts`
 
-DB: 테이블 DDL은 `supabase/schema.sql`에 이미 있음. B가 추가로 돌릴 것:
-
-- `db/001_vendor_matching.sql` — vendors 데모 시딩 15건 (재실행 안전)
-- `db/002_vendors_rating_active.sql` — **팀 공유 후 실행.** `vendors.rating` /
-  `vendors.is_active` 컬럼 추가. `POST /api/vendors/match`가 `is_active`로
-  필터하므로 이걸 돌려야 매칭 API가 동작함.
+DB: 테이블 DDL(`vendors.rating`/`is_active` 포함)은 `supabase/schema.sql`에
+이미 있음. 데모 업체 8곳은 위 "테스트 데이터" 절 표에 있는 계정으로 실제
+`POST /api/auth/signup`을 태워서 만들었음(SQL 시딩 파일은 로그인이 안 돼서
+정리하면서 지웠음) — 업체마다 분야 2~3개, 카테고리 8종 전부 최소 2곳 이상
+겹치게 구성(견적 비교/이상치 판정 테스트용).
 
 `quotes.status`는 DB 기본값이 `pending`이지만 B 범위에서는 `recommended` /
 `selected` / `rejected` 세 값만 쓰며, `createQuote`가 `recommended`를 명시해서 넣음.
@@ -194,7 +230,7 @@ DB: 테이블 DDL은 `supabase/schema.sql`에 이미 있음. B가 추가로 돌�
 
 median / 이상치 판정 검증: `npx ts-node src/controllers/quotes.controller.check.ts`
 
-**신고→매칭→견적→선택 플로우 보완 (db/009_quote_visit_and_reject.sql, 팀 공유 후 실행 필요):**
+**신고→매칭→견적→선택 플로우 보완 (스키마는 supabase/schema.sql에 반영됨):**
 `reports.available_times`(세입자 거주 가능 시간대), `quotes.proposed_visit_at`(업체가
 제안하는 방문 가능 시간) 컬럼이 추가됨. `PATCH /api/quotes/:id/status`로 견적을
 `selected`로 바꾸면, 같은 신고의 나머지 견적은 전부 `rejected`로 자동 전환되고,
