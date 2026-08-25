@@ -27,8 +27,13 @@ reportsRouter.use(requireAuth);
  *   post:
  *     summary: 하자 리포트 생성
  *     description: |
- *       (스텁) 현재는 body를 무시하고 200 placeholder만 반환함.
- *       POST /api/uploads로 먼저 photo_url을 받아온 뒤 호출하는 흐름을 전제로 함.
+ *       사진을 여러 장 첨부할 수 있다. POST /api/uploads를 사진 수만큼 호출해
+ *       url을 모은 뒤, 그 배열을 photo_urls로 보내면 된다.
+ *       서버가 첫 번째 url을 대표 사진(photo_url)으로 함께 저장한다.
+ *
+ *       tenant_id는 body로 받지 않는다 — 인증 토큰에서 꺼낸다.
+ *       category / severity / recommended_path / self_fix_guide는
+ *       POST /api/reports/analyze 결과를 그대로 넘길 때만 채우면 되고, 생략 가능하다.
  *     tags: [Reports]
  *     requestBody:
  *       required: true
@@ -36,16 +41,19 @@ reportsRouter.use(requireAuth);
  *         application/json:
  *           schema:
  *             type: object
- *             required: [landlord_id, photo_url]
+ *             required: [landlord_id, photo_urls]
  *             properties:
  *               landlord_id:
  *                 type: string
  *                 format: uuid
  *                 description: 세입자가 속한 임대인 id (프론트에서 미리 확보해서 함께 전달)
- *               photo_url:
- *                 type: string
- *                 format: uri
- *                 description: POST /api/uploads 응답으로 받은 url
+ *               photo_urls:
+ *                 type: array
+ *                 minItems: 1
+ *                 items:
+ *                   type: string
+ *                   format: uri
+ *                 description: POST /api/uploads 응답으로 받은 url 목록. 최소 1개 필요.
  *               description:
  *                 type: string
  *                 nullable: true
@@ -66,7 +74,7 @@ reportsRouter.use(requireAuth);
  *                 nullable: true
  *     responses:
  *       201:
- *         description: 생성 성공 (구현 완료 후)
+ *         description: 생성 성공
  *         content:
  *           application/json:
  *             schema:
@@ -74,24 +82,20 @@ reportsRouter.use(requireAuth);
  *               properties:
  *                 report:
  *                   $ref: '#/components/schemas/Report'
- *       200:
- *         description: (현재 스텁) placeholder 응답
+ *       400:
+ *         description: landlord_id 누락, photo_urls가 비었거나, category/severity/recommended_path 값이 허용 목록 밖
  *         content:
  *           application/json:
  *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: 'TODO(팀원A): createReport 구현 필요'
- *       400:
- *         description: 필수값 누락 (구현 완료 후)
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: 토큰 누락 또는 만료
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *       500:
- *         description: 서버 오류 (구현 완료 후)
+ *         description: 서버 오류
  *         content:
  *           application/json:
  *             schema:
