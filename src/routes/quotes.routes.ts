@@ -80,6 +80,14 @@ router.post('/', asyncHandler(createQuote));
  *         description: >
  *           가전 종류. 주면 동급 신품가와 비교해 수리/교체 권장(replacementAdvice)을 함께 낸다.
  *           생략하면 replacementAdvice가 null이다.
+ *       - in: query
+ *         name: warrantyCovered
+ *         required: false
+ *         schema:
+ *           type: boolean
+ *         description: >
+ *           analyze 의 liability 가 manufacturer_warranty 일 때 true 로 준다.
+ *           무상 수리가 가능한 가전에 교체 권장이 나가지 않도록 막는다.
  *     responses:
  *       200:
  *         description: 목록 조회 성공

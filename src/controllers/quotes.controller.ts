@@ -91,6 +91,9 @@ export async function createQuote(req: Request, res: Response) {
 export async function listQuotes(req: Request, res: Response) {
   const reportId = req.query.reportId as string | undefined;
   const applianceType = req.query.applianceType as ApplianceType | undefined;
+  // 제조사 보증기간 내(analyze의 liability === 'manufacturer_warranty')면 프론트가 이 값을 준다.
+  // 무상 수리가 가능한 가전에 "신품가의 64%니 교체하세요"를 내보내지 않기 위한 차단이다.
+  const warrantyCovered = req.query.warrantyCovered === 'true';
 
   if (!reportId) {
     return res.status(400).json({ error: 'reportId 쿼리 파라미터가 필요합니다.' });
@@ -120,7 +123,11 @@ export async function listQuotes(req: Request, res: Response) {
     return { ...q, isOutlier: outlier, outlierReason: outlier ? OUTLIER_REASON : null };
   });
 
-  return res.json({ quotes, median: med, replacementAdvice: await buildAdvice(applianceType, med) });
+  return res.json({
+    quotes,
+    median: med,
+    replacementAdvice: await buildAdvice(applianceType, med, warrantyCovered),
+  });
 }
 
 // 신품 기준가는 종류별 최저가(기본형)를 쓴다 — "같은 걸 새로 사면 얼마"가 기준이라
@@ -128,7 +135,8 @@ export async function listQuotes(req: Request, res: Response) {
 // 견적이 없거나(med === null) applianceType을 안 주면 판정하지 않는다.
 async function buildAdvice(
   applianceType: ApplianceType | undefined,
-  med: number | null
+  med: number | null,
+  warrantyCovered: boolean
 ): Promise<ReplacementAdvice | null> {
   if (!applianceType || med === null) return null;
 
@@ -141,6 +149,15 @@ async function buildAdvice(
     .maybeSingle();
 
   if (!data) return null;
+
+  if (warrantyCovered) {
+    return {
+      repairEstimate: med,
+      replacementPrice: data.price,
+      recommendation: 'repair',
+      reason: '제조사 보증기간 내로 무상 수리가 가능할 수 있어 교체를 권하지 않습니다. 제조사 A/S를 먼저 확인하세요.',
+    };
+  }
   return adviseReplacement(med, data.price, data.note);
 }
 
