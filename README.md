@@ -86,7 +86,7 @@ DB 스키마(컬럼·제약)는 전부 `supabase/schema.sql` 하나로 재현 �
   먼저 `POST /api/auth/signup`으로 만들 것 — SQL로 직접 넣으면 로그인이
   안 된다(auth.users는 GoTrue가 관리하는 테이블).
 - 그다음 `db/seed_test_data.sql`을 Supabase SQL Editor에서 실행하면
-  세입자 "최세입"(김임대에 자동 연결)과 수리업체 8곳(카테고리 8종에
+  세입자 "최세입"·"심세입"(둘 다 김임대에 자동 연결)과 수리업체 8곳(카테고리 8종에
   하나씩, 분야 안 겹침)이 채워진다.
 - 제조사 A/S(`manufacturer_as_info`), 가전 신품가(`appliance_reference_price`)
   참고 데이터는 이번 정리에서 시딩 파일이 같이 지워졌다 — 그 기능을

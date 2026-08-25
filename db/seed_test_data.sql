@@ -18,12 +18,16 @@
 --   1부 — 임대인 "김임대" (로그인 필요 — POST /api/auth/signup으로 먼저 만들 것.
 --         이 파일은 프로필만 채우는 게 아니라 "김임대"라는 이름의 landlord가
 --         이미 있다고 가정하고 2부에서 그 id를 찾아 쓴다.)
---   2부 — 세입자 "최세입", 김임대에 바로 연결(초대 코드 절차 생략). 로그인 불가.
+--   2부 — 세입자 "최세입", "심세입". 둘 다 김임대에 바로 연결(초대 코드 절차 생략). 로그인 불가.
 --   3부 — 수리업체 8곳. 8개 카테고리에 정확히 하나씩 배정해서 분야가 안 겹친다.
 --         그중 "새지마 종합설비"는 실제 technician 회원가입을 흉내 내
 --         users+vendors가 함께 있다(로그인은 안 됨 — 로그인하려면 이 이름으로
---         POST /api/auth/signup을 대신 호출해줄 것). 나머지 7곳은 db/001과
---         같은 카탈로그 전용 업체(계정 없음).
+--         POST /api/auth/signup을 대신 호출해줄 것). 나머지 7곳은 계정 없는
+--         카탈로그 전용 업체 — POST /api/vendors/match는 계정 유무와 상관없이
+--         is_active인 업체를 전부 보여주므로, 매칭 결과를 실제 서비스처럼
+--         풍성하게 보여주려고 넣었다. 계정이 필요한 건 견적이 selected될 때
+--         repair_schedule을 자동 생성하는 흐름뿐이라, 그 외엔 계정 없이도
+--         매칭·견적 등록이 전부 동작한다.
 --
 -- 실행법: Supabase 대시보드 > SQL Editor에 붙여넣고 Run.
 -- 순서: 1부(김임대) 없이 2부만 실행하면 linked_landlord_id가 비워진 채로
@@ -44,13 +48,17 @@ where not exists (
 );
 
 -- ---------------------------------------------------------------------------
--- 2부 — 세입자 "최세입". 김임대에 바로 연결한다.
+-- 2부 — 세입자 "최세입", "심세입". 둘 다 김임대에 바로 연결한다.
 -- ---------------------------------------------------------------------------
 insert into public.users (name, role, phone, linked_landlord_id)
-select '최세입', 'tenant', '010-3000-0002',
+select v.name, 'tenant', v.phone,
        (select id from public.users where role = 'landlord' and name = '김임대' limit 1)
+from (values
+  ('최세입', '010-3000-0002'),
+  ('심세입', '010-3000-0003')
+) as v(name, phone)
 where not exists (
-  select 1 from public.users existing where existing.name = '최세입' and existing.role = 'tenant'
+  select 1 from public.users existing where existing.name = v.name and existing.role = 'tenant'
 )
 and exists (
   select 1 from public.users landlord where landlord.role = 'landlord' and landlord.name = '김임대'
