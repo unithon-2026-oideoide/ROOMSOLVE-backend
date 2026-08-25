@@ -1,9 +1,7 @@
 import { Request, Response } from 'express';
-import Anthropic from '@anthropic-ai/sdk';
-import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { z } from 'zod';
 import { supabaseAdmin } from '../config/supabase';
-import { getAnthropic } from '../config/anthropic';
+import { getGemini, GEMINI_MODEL } from '../config/gemini';
 import { AuthedRequest } from '../middleware/auth';
 import { RecommendedPath, RepairCategory } from '../types';
 
@@ -125,7 +123,7 @@ export async function getReport(req: AuthedRequest, res: Response) {
   return res.json({ report: data });
 }
 
-// 분석 결과 스키마. Claude가 이 모양으로만 답하도록 강제한다(structured outputs).
+// 분석 결과 스키마. AI 응답을 이 모양으로만 받도록 강제한다(structured outputs).
 // 자유 문자열을 허용하면 category가 DB CHECK와 어긋나 insert가 조용히 실패한다.
 const AnalysisSchema = z.object({
   category: z.enum(['plumbing', 'electrical', 'heating', 'appliance',
@@ -148,19 +146,63 @@ recommended_path 기준:
 - manufacturer_as: 보일러·에어컨 등 제조사 보증/AS 대상 기기의 고장인 경우
 - vendor_match: 전문 수리업체의 방문이 필요한 경우
 
-self_fix_guide는 recommended_path가 self_fix일 때만 채우고, 그 외에는 null로 두세요.
+self_fix_guide는 recommended_path가 self_fix일 때만 채우고, 그 외에는 빈 문자열로 두세요.
 가이드는 한국어로 3~5문장, 순서대로 따라 할 수 있게 쓰세요.
 안전 위험이 조금이라도 있으면 self_fix를 고르지 마세요.`;
+
+// Gemini에 넘기는 응답 스키마. AnalysisSchema와 같은 모양이지만 self_fix_guide만
+// nullable이 아니라 문자열이다. Gemini 스키마의 null 표현이 JSON Schema와 미묘하게
+// 달라서, 해당 없음을 빈 문자열로 받고 우리 쪽에서 null로 바꾼다.
+const GEMINI_RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    category: {
+      type: 'string',
+      enum: ['plumbing', 'electrical', 'heating', 'appliance',
+             'door_window', 'interior', 'pest', 'other'],
+    },
+    severity: { type: 'string', enum: ['low', 'medium', 'high', 'emergency'] },
+    recommended_path: { type: 'string', enum: ['self_fix', 'manufacturer_as', 'vendor_match'] },
+    self_fix_guide: {
+      type: 'string',
+      description: 'recommended_path가 self_fix일 때만 채우고, 그 외에는 빈 문자열',
+    },
+  },
+  required: ['category', 'severity', 'recommended_path', 'self_fix_guide'],
+};
+
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 업로드 제한과 동일하게 맞춘다
+
+// Gemini는 이미지 URL을 대신 받아 오지 않는다. 서버가 직접 내려받아
+// base64로 넘겨야 한다. 실패는 호출한 쪽에서 400으로 처리한다.
+async function fetchImagePart(url: string) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+  if (!res.ok) {
+    throw new Error(`사진을 가져오지 못했습니다 (${res.status}): ${url}`);
+  }
+
+  const mimeType = res.headers.get('content-type')?.split(';')[0]?.trim() ?? '';
+  if (!mimeType.startsWith('image/')) {
+    throw new Error(`이미지가 아닌 응답입니다 (${mimeType || '알 수 없음'}): ${url}`);
+  }
+
+  const buffer = Buffer.from(await res.arrayBuffer());
+  if (buffer.byteLength > MAX_IMAGE_BYTES) {
+    throw new Error(`사진이 10MB를 넘습니다: ${url}`);
+  }
+
+  return { inlineData: { mimeType, data: buffer.toString('base64') } };
+}
 
 // 사진/설명 기반 AI 하자 분석.
 //
 // 이 API는 분류만 한다 — DB에 저장하지 않는다. 프론트는 결과를 확인시킨 뒤
 // POST /api/reports에 그대로 넘겨서 저장한다. landlord_id도 여기서는 다루지 않는다.
 export async function analyzeReport(req: Request, res: Response) {
-  const anthropic = getAnthropic();
-  if (!anthropic) {
+  const gemini = await getGemini();
+  if (!gemini) {
     return res.status(503).json({
-      error: 'ANTHROPIC_API_KEY가 설정되지 않아 AI 분석을 사용할 수 없습니다. .env를 확인하세요.',
+      error: 'GEMINI_API_KEY가 설정되지 않아 AI 분석을 사용할 수 없습니다. .env를 확인하세요.',
     });
   }
 
@@ -183,28 +225,23 @@ export async function analyzeReport(req: Request, res: Response) {
 
   // 사진이 많아도 앞의 4장만 본다. 장수가 늘수록 비용과 응답 시간이 그대로 늘고,
   // 같은 하자를 여러 각도로 찍은 것이라 4장이면 판단에 충분하다.
-  const images = urls.slice(0, 4).map((url) => ({
-    type: 'image' as const,
-    source: { type: 'url' as const, url },
-  }));
-
+  let imageParts;
   try {
-    const response = await anthropic.messages.parse({
-      model: 'claude-opus-5',
-      max_tokens: 4096,
-      system: ANALYSIS_SYSTEM_PROMPT,
-      // 사진 분류라 깊은 추론이 필요하지 않다. 시연 중 응답 시간을 줄이려고 낮췄다.
-      output_config: {
-        effort: 'medium',
-        format: zodOutputFormat(AnalysisSchema),
-      },
-      messages: [
+    imageParts = await Promise.all(urls.slice(0, 4).map(fetchImagePart));
+  } catch (err) {
+    return res.status(400).json({ error: err instanceof Error ? err.message : '사진을 가져오지 못했습니다.' });
+  }
+
+  let rawText: string | undefined;
+  try {
+    const response = await gemini.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: [
         {
           role: 'user',
-          content: [
-            ...images,
+          parts: [
+            ...imageParts,
             {
-              type: 'text',
               text: description
                 ? `세입자 설명: ${description}\n\n위 사진과 설명을 보고 분류해 주세요.`
                 : '위 사진을 보고 분류해 주세요. 세입자가 남긴 설명은 없습니다.',
@@ -212,28 +249,49 @@ export async function analyzeReport(req: Request, res: Response) {
           ],
         },
       ],
+      config: {
+        systemInstruction: ANALYSIS_SYSTEM_PROMPT,
+        responseMimeType: 'application/json',
+        responseJsonSchema: GEMINI_RESPONSE_SCHEMA,
+      },
     });
-
-    if (response.stop_reason === 'refusal') {
-      return res.status(502).json({ error: 'AI가 이 이미지의 분석을 거절했습니다.' });
-    }
-    if (!response.parsed_output) {
-      return res.status(502).json({ error: 'AI 응답을 분석 결과로 해석하지 못했습니다.' });
-    }
-
-    return res.json(response.parsed_output);
+    rawText = response.text;
   } catch (err) {
-    if (err instanceof Anthropic.AuthenticationError) {
-      return res.status(503).json({ error: 'ANTHROPIC_API_KEY가 올바르지 않습니다.' });
+    // Gemini는 오류를 JSON 문자열로 담아 던진다. 그대로 내보내면 사용자에게
+    // 원문 JSON이 노출되므로, 아는 상태만 우리 상태 코드로 옮겨 준다.
+    const raw = err instanceof Error ? err.message : '';
+    const status = /"status"\s*:\s*"([A-Z_]+)"/.exec(raw)?.[1];
+
+    if (status === 'UNAVAILABLE' || status === 'DEADLINE_EXCEEDED') {
+      return res.status(503).json({ error: 'AI 분석 서버가 혼잡합니다. 잠시 후 다시 시도해 주세요.' });
     }
-    if (err instanceof Anthropic.RateLimitError) {
+    if (status === 'RESOURCE_EXHAUSTED') {
       return res.status(429).json({ error: 'AI 호출 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.' });
     }
-    if (err instanceof Anthropic.APIError) {
-      return res.status(502).json({ error: `AI 분석 실패: ${err.message}` });
+    if (status === 'INVALID_ARGUMENT' || status === 'PERMISSION_DENIED' || status === 'UNAUTHENTICATED') {
+      return res.status(503).json({ error: 'GEMINI_API_KEY가 올바르지 않습니다.' });
     }
-    throw err;
+    return res.status(502).json({ error: `AI 분석 실패: ${raw || '알 수 없는 오류'}` });
   }
+
+  if (!rawText) {
+    return res.status(502).json({ error: 'AI가 빈 응답을 반환했습니다.' });
+  }
+
+  // 스키마를 걸어도 응답을 그대로 믿지 않는다. 여기서 한 번 더 검증해야
+  // 잘못된 category가 DB CHECK까지 흘러가 500으로 터지는 일을 막을 수 있다.
+  const parsed = AnalysisSchema.safeParse(
+    (() => { try { return JSON.parse(rawText); } catch { return null; } })(),
+  );
+  if (!parsed.success) {
+    return res.status(502).json({ error: 'AI 응답을 분석 결과로 해석하지 못했습니다.' });
+  }
+
+  return res.json({
+    ...parsed.data,
+    // 빈 문자열은 "자가조치 가이드 없음"이라는 뜻이므로 null로 바꿔 내보낸다.
+    self_fix_guide: parsed.data.self_fix_guide || null,
+  });
 }
 
 // 제조사 A/S 연락처 조회. recommended_path가 manufacturer_as일 때 프론트가 부른다.
