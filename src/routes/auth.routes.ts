@@ -30,9 +30,19 @@ const router = Router();
  *                 $ref: '#/components/schemas/UserRole'
  *               phone:
  *                 type: string
+ *               business_number:
+ *                 type: string
+ *                 description: 사업자등록번호. role이 technician이면 필수, 아니면 무시된다.
+ *                 example: '123-45-67890'
+ *               categories:
+ *                 type: array
+ *                 minItems: 1
+ *                 description: 전문 분야(복수 선택). role이 technician이면 필수, 아니면 무시된다.
+ *                 items:
+ *                   $ref: '#/components/schemas/Category'
  *     responses:
  *       201:
- *         description: 회원가입 성공
+ *         description: 회원가입 성공. role이 technician이면 vendor가 함께 반환된다.
  *         content:
  *           application/json:
  *             schema:
@@ -40,16 +50,20 @@ const router = Router();
  *               properties:
  *                 user:
  *                   $ref: '#/components/schemas/User'
+ *                 vendor:
+ *                   allOf:
+ *                     - $ref: '#/components/schemas/Vendor'
+ *                   description: role이 technician일 때만 존재하는 업체 정보 (vendors 테이블에 저장)
  *                 session:
  *                   $ref: '#/components/schemas/AuthSession'
  *       400:
- *         description: 필수값 누락, 잘못된 role, 또는 Auth 계정 생성 실패
+ *         description: 필수값 누락, 잘못된 role/categories, business_number 누락, 또는 Auth 계정 생성 실패
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *       500:
- *         description: 프로필 저장 실패
+ *         description: 프로필 또는 업체 정보 저장 실패
  *         content:
  *           application/json:
  *             schema:

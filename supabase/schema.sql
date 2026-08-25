@@ -10,6 +10,7 @@
 --
 --   db/001_vendor_matching.sql       vendors 시딩 15개 (데이터만)
 --   db/002_vendors_rating_active.sql vendors.rating / is_active 추가 + quotes 부분 인덱스
+--   db/007_vendors_signup_link.sql   vendors.user_id / business_number 추가 (수리업체 가입)
 --
 -- NOT NULL과 기본값은 PostgREST가 노출하는 실제 스키마에서 읽어 맞춘 것이다.
 -- 실제 DB는 PK와 핵심 FK 말고는 NOT NULL이 거의 걸려 있지 않다. 제약이 느슨하다는
@@ -103,12 +104,17 @@ create index manufacturer_as_info_category_idx on public.manufacturer_as_info (c
 -- ---------------------------------------------------------------------------
 create table public.vendors (
   id         uuid primary key default gen_random_uuid(),
+  -- technician role로 가입한 계정과의 연결. db/007_vendors_signup_link.sql로 추가됐다.
+  -- 시딩된 데모 업체 15곳은 계정이 없어 NULL이다.
+  user_id    uuid references public.users (id) on delete cascade,
+  business_number text,
   name       text not null,
   categories text[] not null default '{}' check (
                categories <@ array['plumbing', 'electrical', 'heating', 'appliance',
                                    'door_window', 'interior', 'pest', 'other']::text[]
              ),
-  region     text not null,
+  -- 가입 시점에는 지역을 받지 않으므로 db/007에서 NOT NULL을 풀었다.
+  region     text,
   phone      text,
   rating     numeric(2,1) not null default 0.0,
   is_active  boolean      not null default true,
@@ -116,6 +122,9 @@ create table public.vendors (
 );
 
 create index vendors_categories_idx on public.vendors using gin (categories);
+
+-- 한 계정당 업체 프로필 하나. db/007_vendors_signup_link.sql로 추가됐다.
+create unique index vendors_user_id_idx on public.vendors (user_id) where user_id is not null;
 
 
 -- ---------------------------------------------------------------------------

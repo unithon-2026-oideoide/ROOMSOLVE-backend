@@ -207,6 +207,18 @@ const swaggerSpec = swaggerJSDoc({
           type: 'object',
           properties: {
             id: { type: 'string', format: 'uuid' },
+            user_id: {
+              type: 'string',
+              format: 'uuid',
+              nullable: true,
+              description: 'technician으로 가입한 계정의 users.id. 시딩된 데모 업체는 null. db/007',
+            },
+            business_number: {
+              type: 'string',
+              nullable: true,
+              description: '사업자등록번호. 가입 시 입력받는다. POST /api/vendors/match 응답에는 포함되지 않는다. db/007',
+              example: '123-45-67890',
+            },
             name: { type: 'string' },
             categories: {
               type: 'array',

@@ -30,6 +30,19 @@ export type RepairCategory =
   | 'pest'
   | 'other';
 
+// RepairCategory의 실제 값 목록. USER_ROLES와 같은 용도 — 카테고리 검증이 필요한
+// 컨트롤러(vendors, auth)가 이 배열 하나를 같이 쓴다.
+export const REPAIR_CATEGORIES: RepairCategory[] = [
+  'plumbing',
+  'electrical',
+  'heating',
+  'appliance',
+  'door_window',
+  'interior',
+  'pest',
+  'other',
+];
+
 export interface Report {
   id: string;
   tenant_id: string;
@@ -95,6 +108,11 @@ export interface ApplianceReferencePrice {
 
 export interface Vendor {
   id: string;
+  // technician으로 가입한 계정의 users.id. db/007로 추가된 컬럼이고,
+  // 시딩된 데모 업체 15곳은 계정이 없으므로 NULL이다.
+  user_id: string | null;
+  // 사업자등록번호. 가입 시 받는다. db/007.
+  business_number: string | null;
   name: string;
   categories: RepairCategory[];
   region: string | null; // 컬럼만 존재. 현재 매칭 필터에는 사용하지 않음

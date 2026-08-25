@@ -1,17 +1,6 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase';
-import { RepairCategory, Vendor } from '../types';
-
-const VALID_CATEGORIES: RepairCategory[] = [
-  'plumbing',
-  'electrical',
-  'heating',
-  'appliance',
-  'door_window',
-  'interior',
-  'pest',
-  'other',
-];
+import { RepairCategory, REPAIR_CATEGORIES, Vendor } from '../types';
 
 // POST /api/vendors/match — category에 속하는 활성 업체를 업체명 가나다순으로 반환.
 // NOTE: region 필터링은 이번 범위에서 제외 (vendors.region 컬럼만 준비된 상태).
@@ -19,13 +8,14 @@ const VALID_CATEGORIES: RepairCategory[] = [
 export async function matchVendors(req: Request, res: Response) {
   const { category } = req.body as { category: RepairCategory };
 
-  if (!VALID_CATEGORIES.includes(category)) {
-    return res.status(400).json({ error: `category는 ${VALID_CATEGORIES.join('|')} 중 하나여야 합니다.` });
+  if (!REPAIR_CATEGORIES.includes(category)) {
+    return res.status(400).json({ error: `category는 ${REPAIR_CATEGORIES.join('|')} 중 하나여야 합니다.` });
   }
 
   const { data, error } = await supabaseAdmin
     .from('vendors')
-    .select('*')
+    // business_number는 공개 매칭 응답에서 제외한다.
+    .select('id, name, categories, region, phone, rating, is_active, created_at')
     .contains('categories', [category])
     .eq('is_active', true);
 
