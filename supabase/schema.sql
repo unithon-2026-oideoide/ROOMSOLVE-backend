@@ -14,7 +14,6 @@
 --   db/008_landlord_tenant_link.sql  users.landlord_code / linked_landlord_id 추가 (초대 코드 매칭)
 --   db/009_quote_visit_and_reject.sql quotes.status CHECK(+rejected) / quotes.proposed_visit_at /
 --                                    reports.available_times
---   db/010_repair_completion_photo.sql repair_status_timeline.photo_url
 --
 -- NOT NULL과 기본값은 PostgREST가 노출하는 실제 스키마에서 읽어 맞춘 것이다.
 -- 실제 DB는 PK와 핵심 FK 말고는 NOT NULL이 거의 걸려 있지 않다. 제약이 느슨하다는
@@ -212,8 +211,6 @@ create table public.repair_status_timeline (
   id         uuid primary key default gen_random_uuid(),
   report_id  uuid not null references public.reports (id) on delete cascade,
   status     text not null,
-  -- 수리 완료 사진. status가 'done'일 때만 채워진다. db/010_repair_completion_photo.sql
-  photo_url  text,
   changed_at timestamptz default now()
 );
 
