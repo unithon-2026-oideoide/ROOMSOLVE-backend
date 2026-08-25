@@ -104,27 +104,24 @@ export async function listProperties(req: AuthedRequest, res: Response) {
   const landlordId = req.user!.id;
 
   // NOTE: 현재 스키마에는 별도 `properties` 테이블이 없습니다.
-  // 임시로 이 landlord의 reports에 연결된 tenant 목록을 중복 제거해서 반환합니다.
-  // 실제 매물(properties) 테이블이 생기면 이 로직을 교체해줘야 합니다.
+  // 임시로 이 landlord와 연결된(linked_landlord_id, db/008) tenant 목록을
+  // 반환합니다. 실제 매물(properties) 테이블이 생기면 이 로직을 교체해줘야 합니다.
+  //
+  // 예전에는 reports.landlord_id에서 뽑았는데, 그건 "그 신고를 보낼 당시"의
+  // 스냅샷이라 세입자가 초대 코드로 다른 임대인에게 옮겨가도(linked_landlord_id
+  // 변경) 예전 임대인 목록에 계속 남고 새 임대인 목록에는 신고를 새로 보내기
+  // 전까지 안 보이는 문제가 있었다. linked_landlord_id는 "지금" 연결 상태를
+  // 그대로 담고 있어 이 문제가 없다.
   const { data, error } = await supabaseAdmin
-    .from('reports')
-    .select('tenant:users!reports_tenant_id_fkey(id, name, phone)')
-    .eq('landlord_id', landlordId);
+    .from('users')
+    .select('id, name, phone')
+    .eq('linked_landlord_id', landlordId)
+    .eq('role', 'tenant')
+    .order('name');
 
   if (error) {
     return res.status(500).json({ error: error.message });
   }
 
-  // supabase-js는 FK 관계를 코드 생성 타입 없이는 배열로 추론한다.
-  // reports_tenant_id_fkey는 실제로는 to-one 관계라 런타임엔 단일 객체로 온다.
-  const seen = new Set<string>();
-  const tenants = (data as unknown as { tenant: TenantSummary | null }[])
-    .map((row) => row.tenant)
-    .filter((tenant): tenant is TenantSummary => {
-      if (!tenant || seen.has(tenant.id)) return false;
-      seen.add(tenant.id);
-      return true;
-    });
-
-  return res.json({ properties: tenants });
+  return res.json({ properties: (data ?? []) as TenantSummary[] });
 }

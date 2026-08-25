@@ -224,7 +224,12 @@ router.post('/auto-approval-policy', asyncHandler(createAutoApprovalPolicy));
  * /api/landlord/properties:
  *   get:
  *     summary: 임대인 매물(세입자) 목록 조회
- *     description: 별도 properties 테이블이 아직 없어, 이 임대인 앞으로 리포트를 올린 세입자 목록을 중복 제거해서 반환하는 임시 구조.
+ *     description: >
+ *       별도 properties 테이블이 아직 없어, 이 임대인과 연결된(linked_landlord_id,
+ *       PATCH /api/users/link-landlord로 세입자가 초대 코드를 입력해 설정) 세입자
+ *       목록을 반환하는 임시 구조. 신고 이력이 아니라 지금 시점의 연결 상태를
+ *       기준으로 하므로, 세입자가 다른 임대인으로 옮겨가면(연결 코드 재입력)
+ *       즉시 반영된다.
  *     tags: [Landlord]
  *     security:
  *       - bearerAuth: []
