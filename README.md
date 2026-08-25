@@ -74,6 +74,24 @@ npm run dev          # http://localhost:3000/api-docs 에서 Swagger로 실제 �
    응답 확인
 3. 문제 없으면 `develop` → `main` 머지 후 푸시
 
+## 테스트 데이터
+
+DB 스키마(컬럼·제약)는 전부 `supabase/schema.sql` 하나로 재현 가능하다.
+번호가 붙어 있던 마이그레이션 이력 파일들(예전 `db/001`~`db/010`)은 이제
+다 지워졌고, `db/seed_test_data.sql` 하나만 남아 있다 — 이건 마이그레이션이
+아니라 테스트용 행 데이터를 채우는 시드 스크립트라 몇 번을 다시 실행해도
+안전하다.
+
+- 로그인 가능한 계정(임대인 "김임대", 수리업체 "새지마 종합설비" 등)은
+  먼저 `POST /api/auth/signup`으로 만들 것 — SQL로 직접 넣으면 로그인이
+  안 된다(auth.users는 GoTrue가 관리하는 테이블).
+- 그다음 `db/seed_test_data.sql`을 Supabase SQL Editor에서 실행하면
+  세입자 "최세입"(김임대에 자동 연결)과 수리업체 8곳(카테고리 8종에
+  하나씩, 분야 안 겹침)이 채워진다.
+- 제조사 A/S(`manufacturer_as_info`), 가전 신품가(`appliance_reference_price`)
+  참고 데이터는 이번 정리에서 시딩 파일이 같이 지워졌다 — 그 기능을
+  테스트하려면 데이터를 새로 채워야 한다.
+
 ## 프로젝트 구조
 
 ```
@@ -108,7 +126,7 @@ src/
 > 예전에는 `reports.landlord_id`(신고 당시 스냅샷)에서 뽑아서, 세입자가 초대 코드로 다른 임대인에게
 > 옮겨가도 예전 임대인 목록에 계속 남는 버그가 있었다. 지금은 연결 상태를 직접 조회해서 그 문제가 없다.
 
-**임대인-세입자 매칭 (초대 코드, db/008):** `properties` 테이블이 없어 세입자가
+**임대인-세입자 매칭 (초대 코드):** `properties` 테이블이 없어 세입자가
 자기 `landlord_id`를 알 방법이 없던 문제를, 임대인이 회원가입 시 자동 발급받는
 6자리 코드(`users.landlord_code`)로 임시 해결함. 세입자가 `PATCH
 /api/users/link-landlord`에 그 코드를 보내면 `users.linked_landlord_id`가
@@ -162,9 +180,10 @@ Gemini는 이미지 URL을 대신 받아오지 않으므로 서버가 사진을 
 넘김. 그래서 `photo_urls`의 url은 서버에서 접근 가능해야 함(Supabase Storage의
 public url이면 됨). 비용·응답시간 때문에 앞의 4장만 분석에 씀.
 
-DB: `db/003_reports_photo_urls.sql`(photo_urls 컬럼 기록 + 백필),
-`db/004_manufacturer_as_seed.sql`(제조사 A/S 시드 10건). 둘 다 재실행 안전.
-004는 이미 적용해 둠.
+DB: 컬럼(`photo_urls` 등)은 `supabase/schema.sql`에 이미 반영돼 있음. 번호가
+붙은 마이그레이션 파일들은 정리하면서 지웠음(스키마는 schema.sql 하나로
+재현 가능한 상태). 제조사 A/S 참고 데이터(`manufacturer_as_info`)는 시딩
+파일이 같이 지워졌으니, 그 기능을 테스트하려면 데이터를 새로 채워야 함.
 
 ### 팀원B (전문업체 매칭)
 
@@ -181,12 +200,10 @@ DB: `db/003_reports_photo_urls.sql`(photo_urls 컬럼 기록 + 백필),
 파일: `src/routes/{vendors,quotes,repair}.routes.ts`,
 `src/controllers/{vendors,quotes,repair}.controller.ts`
 
-DB: 테이블 DDL은 `supabase/schema.sql`에 이미 있음. B가 추가로 돌릴 것:
-
-- `db/001_vendor_matching.sql` — vendors 데모 시딩 15건 (재실행 안전)
-- `db/002_vendors_rating_active.sql` — **팀 공유 후 실행.** `vendors.rating` /
-  `vendors.is_active` 컬럼 추가. `POST /api/vendors/match`가 `is_active`로
-  필터하므로 이걸 돌려야 매칭 API가 동작함.
+DB: 테이블 DDL(`vendors.rating`/`is_active` 포함)은 `supabase/schema.sql`에
+이미 있음. 데모 업체 시딩은 `db/seed_test_data.sql` 3부에서 처리함(8개
+카테고리에 업체 하나씩, 분야 안 겹침) — 예전 15개짜리 시딩 파일은 정리하면서
+지웠음.
 
 `quotes.status`는 DB 기본값이 `pending`이지만 B 범위에서는 `recommended` /
 `selected` / `rejected` 세 값만 쓰며, `createQuote`가 `recommended`를 명시해서 넣음.
@@ -194,7 +211,7 @@ DB: 테이블 DDL은 `supabase/schema.sql`에 이미 있음. B가 추가로 돌�
 
 median / 이상치 판정 검증: `npx ts-node src/controllers/quotes.controller.check.ts`
 
-**신고→매칭→견적→선택 플로우 보완 (db/009_quote_visit_and_reject.sql, 팀 공유 후 실행 필요):**
+**신고→매칭→견적→선택 플로우 보완 (스키마는 supabase/schema.sql에 반영됨):**
 `reports.available_times`(세입자 거주 가능 시간대), `quotes.proposed_visit_at`(업체가
 제안하는 방문 가능 시간) 컬럼이 추가됨. `PATCH /api/quotes/:id/status`로 견적을
 `selected`로 바꾸면, 같은 신고의 나머지 견적은 전부 `rejected`로 자동 전환되고,
