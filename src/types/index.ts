@@ -62,6 +62,10 @@ export interface Report {
   severity: string | null;
   recommended_path: RecommendedPath | null;
   self_fix_guide: string | null;
+  // recommended_path와 무관하게 항상 채워지는 AI 진단 요약(1~3문장). self_fix_guide는
+  // self_fix일 때만 있는 "따라 할 행동" 가이드이고, 이건 모든 경로 공통의 "무엇이
+  // 왜 문제인지" 판단 문장이다. 프론트가 신고 상세 화면의 "AI 판단" 카드에 쓴다.
+  ai_summary: string | null;
   appliance_type: ApplianceType | null; // 가전 하자일 때만. db/006
   // 세입자가 집에 있는 시간대. 단순 텍스트로 시작(예: "평일 오후, 주말 오전"). db/009.
   available_times: string | null;

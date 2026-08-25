@@ -83,6 +83,8 @@ create table public.reports (
   -- 정하지 않는다. reports.category 8종과는 별개 축이다.
   appliance_type   text check (appliance_type in ('aircon', 'boiler', 'induction',
                                                   'refrigerator', 'washer')),
+  -- recommended_path와 무관하게 항상 채워지는 AI 진단 요약(1~3문장).
+  ai_summary       text,
   -- 세입자가 집에 있는 시간대. 자유 텍스트.
   available_times  text,
   status           text default 'pending',

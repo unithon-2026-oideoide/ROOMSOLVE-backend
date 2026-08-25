@@ -33,7 +33,7 @@ const RECOMMENDED_PATHS: RecommendedPath[] = ['self_fix', 'manufacturer_as', 've
 // 쓴다. 둘 다 없으면 400으로 막는다 — 아직 어느 임대인과도 연결 안 된 세입자다.
 export async function createReport(req: AuthedRequest, res: Response) {
   const { landlord_id, photo_urls, description, category, severity, recommended_path, self_fix_guide,
-          appliance_type, available_times } =
+          ai_summary, appliance_type, available_times } =
     req.body as {
       landlord_id?: string;
       photo_urls?: unknown;
@@ -42,6 +42,9 @@ export async function createReport(req: AuthedRequest, res: Response) {
       severity?: string;
       recommended_path?: string;
       self_fix_guide?: string;
+      // recommended_path와 무관하게 항상 채워지는 AI 진단 요약. /api/reports/analyze
+      // 응답을 그대로 넘겨받아 저장한다.
+      ai_summary?: string;
       appliance_type?: string;
       // 세입자가 집에 있는 시간대. 자유 텍스트, 선택값. db/009.
       available_times?: string;
@@ -98,6 +101,7 @@ export async function createReport(req: AuthedRequest, res: Response) {
       severity: severity ?? null,
       recommended_path: recommended_path ?? null,
       self_fix_guide: self_fix_guide ?? null,
+      ai_summary: ai_summary ?? null,
       appliance_type: appliance_type ?? null,
       available_times: available_times ?? null,
       status: 'pending',
@@ -163,6 +167,10 @@ const AnalysisSchema = z.object({
   severity: z.enum(['low', 'medium', 'high', 'emergency']),
   recommended_path: z.enum(['self_fix', 'manufacturer_as', 'vendor_match']),
   self_fix_guide: z.string().nullable(),
+  // recommended_path와 무관하게 항상 채워지는 AI 진단 요약. self_fix_guide와 달리
+  // 경로 제한이 없다 — 이게 없으면 self_fix가 아닌 신고는 프론트가 보여줄 "AI 판단"이
+  // 세입자가 입력한 원문 description으로 대체되는 문제가 있었다.
+  ai_summary: z.string().min(1),
   // 가전이 아니면 빈 문자열. self_fix_guide와 같은 이유로 null 대신 ''를 쓴다.
   appliance_type: z.enum(['', 'aircon', 'boiler', 'induction', 'refrigerator', 'washer']),
 });
@@ -183,6 +191,10 @@ recommended_path 기준:
 self_fix_guide는 recommended_path가 self_fix일 때만 채우고, 그 외에는 빈 문자열로 두세요.
 가이드는 한국어로 3~5문장, 순서대로 따라 할 수 있게 쓰세요.
 안전 위험이 조금이라도 있으면 self_fix를 고르지 마세요.
+
+ai_summary는 recommended_path와 상관없이 항상 채우세요. 사진과 설명을 바탕으로
+무엇이 문제이고 왜 그렇게 판단했는지를 세입자에게 보여줄 한국어 1~3문장으로 쓰세요.
+self_fix_guide처럼 "어떻게 고치는지"가 아니라 "무엇이, 왜 문제인지"에 집중하세요.
 
 appliance_type 기준:
 - 고장난 대상이 아래 가전 중 하나로 보이면 해당 값을 고르세요.
@@ -208,13 +220,17 @@ const GEMINI_RESPONSE_SCHEMA = {
       type: 'string',
       description: 'recommended_path가 self_fix일 때만 채우고, 그 외에는 빈 문자열',
     },
+    ai_summary: {
+      type: 'string',
+      description: 'recommended_path와 무관하게 항상 채우는, 무엇이 왜 문제인지에 대한 1~3문장 요약',
+    },
     appliance_type: {
       type: 'string',
       enum: ['', 'aircon', 'boiler', 'induction', 'refrigerator', 'washer'],
       description: '고장난 것이 가전제품일 때만 종류를 고르고, 아니면 빈 문자열',
     },
   },
-  required: ['category', 'severity', 'recommended_path', 'self_fix_guide', 'appliance_type'],
+  required: ['category', 'severity', 'recommended_path', 'self_fix_guide', 'ai_summary', 'appliance_type'],
 };
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 업로드 제한과 동일하게 맞춘다

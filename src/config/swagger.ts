@@ -93,6 +93,11 @@ const swaggerSpec = swaggerJSDoc({
             severity: { allOf: [{ $ref: '#/components/schemas/Severity' }], nullable: true },
             recommended_path: { allOf: [{ $ref: '#/components/schemas/RecommendedPath' }], nullable: true },
             self_fix_guide: { type: 'string', nullable: true },
+            ai_summary: {
+              type: 'string',
+              nullable: true,
+              description: 'recommended_path와 무관하게 항상 채워지는 AI 진단 요약',
+            },
             available_times: {
               type: 'string',
               nullable: true,
