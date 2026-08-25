@@ -281,12 +281,6 @@ const swaggerSpec = swaggerJSDoc({
               description: 'DB에 CHECK 제약 없는 자유 문자열. 프론트와 맞춘 값은 scheduled/confirmed/in_progress/done 정도.',
               example: 'confirmed',
             },
-            photo_url: {
-              type: 'string',
-              format: 'uri',
-              nullable: true,
-              description: "수리 완료 사진. status가 'done'일 때만 채워진다. db/010",
-            },
             changed_at: { type: 'string', format: 'date-time' },
           },
         },
