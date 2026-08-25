@@ -26,11 +26,16 @@ export async function getGemini(): Promise<GoogleGenAI | null> {
 
 // 분류 작업이라 Pro까지 쓸 필요가 없고, 시연 중에는 응답 시간이 짧은 쪽이 낫다.
 //
-// 2026-08-25 실측: gemini-3.7-flash는 같은 요청에 20초가 걸리고 503(UNAVAILABLE)이
-// 자주 떴다. 3.6-flash는 3초 안쪽으로 안정적이라 이쪽을 기본으로 쓴다.
-// 최신 모델일수록 수요가 몰려 느린 시기가 있으니, 시연 전에 한 번 재보고 정할 것.
-export const GEMINI_MODEL = 'gemini-3.6-flash';
+// ⚠️ 무료 티어 할당량은 "모델당 하루 20회"다
+//    (GenerateRequestsPerDayPerProjectPerModel-FreeTier = 20).
+//    한 모델만 쓰면 테스트 몇 번에 하루치가 사라진다. 할당량이 모델별로 따로
+//    잡히므로 기본 모델이 바닥나면 다른 모델로 넘겨 쓴다.
+//    시연 규모로 쓰려면 결제를 활성화해야 한다 — 20회로는 어림도 없다.
+//
+// 2026-08-25 실측: 3.7-flash는 20초가 걸리고 503이 잦았다. 3.5-flash-lite가
+// 1.4초로 가장 빠르고 덜 붐벼서 기본으로 두고, 3.6-flash를 예비로 쓴다.
+export const GEMINI_MODEL = 'gemini-3.5-flash-lite';
 
-// 기본 모델이 과부하일 때 한 번 더 시도할 모델. 더 가볍고 그만큼 덜 붐빈다.
-// 분류 품질이 조금 떨어지더라도 시연 중 503으로 멈추는 것보다 낫다.
-export const GEMINI_FALLBACK_MODEL = 'gemini-3.5-flash-lite';
+// 기본 모델이 붐비거나 하루 할당량을 다 썼을 때 넘어갈 모델.
+// 할당량이 모델별로 따로라, 이 전환만으로 하루에 쓸 수 있는 횟수가 두 배가 된다.
+export const GEMINI_FALLBACK_MODEL = 'gemini-3.6-flash';
