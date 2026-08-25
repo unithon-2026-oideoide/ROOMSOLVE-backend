@@ -45,19 +45,26 @@ export async function createSchedule(req: Request, res: Response) {
   return res.status(201).json({ schedule: data });
 }
 
-// GET /api/repair/schedule?reportId= — 해당 report의 방문 일정 목록.
+// GET /api/repair/schedule?reportId= | ?technicianId= — 방문 일정 목록.
+// reportId: 세입자/임대인이 한 신고의 일정을 볼 때. technicianId: 기사가 자기 배정 작업을 볼 때.
+// 둘 다 주면 AND로 걸린다.
 export async function listSchedules(req: Request, res: Response) {
   const reportId = req.query.reportId as string | undefined;
+  const technicianId = req.query.technicianId as string | undefined;
 
-  if (!reportId) {
-    return res.status(400).json({ error: 'reportId 쿼리 파라미터가 필요합니다.' });
+  if (!reportId && !technicianId) {
+    return res.status(400).json({ error: 'reportId 또는 technicianId 쿼리 파라미터가 필요합니다.' });
   }
 
-  const { data, error } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('repair_schedule')
     .select('*, technician:users(id, name, phone)')
-    .eq('report_id', reportId)
     .order('scheduled_at', { ascending: true });
+
+  if (reportId) query = query.eq('report_id', reportId);
+  if (technicianId) query = query.eq('technician_id', technicianId);
+
+  const { data, error } = await query;
 
   if (error) {
     return res.status(500).json({ error: error.message });
