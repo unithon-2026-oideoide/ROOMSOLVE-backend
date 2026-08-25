@@ -20,6 +20,11 @@ npm run dev
 
 서버가 뜨면 `GET /health` 로 헬스체크 가능.
 
+API 문서: 서버 실행 후 http://localhost:3000/api-docs (또는 실서버
+http://134.185.108.221:3000/api-docs)에서 확인 및 테스트 가능. Swagger UI의
+Authorize 버튼으로 로그인 후 받은 access token을 넣으면 인증 필요한 API도
+바로 테스트 가능.
+
 ## 환경 변수
 
 `.env.example` 참고. 필수 값:
@@ -31,11 +36,20 @@ npm run dev
 
 `.env`는 절대 커밋하지 않는다 — `.gitignore`에 포함되어 있는지 항상 확인.
 
+## 브랜치 전략
+
+- `main` : 배포/데모 기준 브랜치. 항상 정상 동작하는 상태로 유지.
+- `develop` : 통합 브랜치. 각자 작업은 여기로 먼저 모은다.
+- 기능/수정 브랜치(`ft-a`, `ft-c`처럼 개인 단위든 `feat/xxx`처럼 기능 단위든 상관없음)에서
+  작업 → `develop`으로 머지 → `develop`이 문제 없이 돌아가면 그때 `main`으로 머지.
+- 즉 `내 브랜치 → develop → main` 순서. `main`으로 바로 머지하지 않는다.
+
 ## 프로젝트 구조
 
 ```
 src/
   config/supabase.ts   # Supabase 클라이언트 (anon / service role)
+  config/swagger.ts    # swagger-jsdoc 설정 (/api-docs)
   routes/               # 라우트 정의
   controllers/          # 라우트 핸들러 로직
   middleware/            # asyncHandler, 에러 핸들러, 인증 미들웨어
@@ -61,6 +75,10 @@ src/
 > 실제 스키마와 다르면 `src/controllers/landlord.controller.ts`의 쿼리를 맞춰서 수정 필요.
 > `GET /api/landlord/properties`는 별도 `properties` 테이블이 아직 없어서, 리포트에 연결된
 > tenant 목록으로 임시 대체함 — 테이블이 생기면 교체할 것.
+
+사진 업로드는 `POST /api/uploads` (multipart, 필드명 `file`)로 처리됨 —
+본인(서버 오너) 담당, 이미 구현 완료. 프론트는 사진을 여기 먼저 올리고
+받은 url을 `POST /api/reports`의 `photo_url` 필드에 넣어서 보내면 됨.
 
 ### 팀원A (AI 분석 & 경량 갈래)
 
@@ -93,12 +111,27 @@ reports 생성 시 landlord_id 필수 — 프론트에서 세입자당 landlord_
 - `POST /api/quotes`
 - `GET /api/quotes`
 - `PATCH /api/quotes/:id/status`
-- `repair_schedule` / `repair_status_timeline` 관련 API는 필요에 따라
-  `src/controllers/repair.controller.ts`에 추가하고, 라우트가 정해지면
-  `src/routes/repair.routes.ts`를 새로 만들어 `app.ts`에 연결하면 됨.
+- `POST /api/repair/schedule` — 방문 일정 등록 (타임라인에 `scheduled` 자동 기록)
+- `GET /api/repair/schedule?reportId=` — 일정 조회
+- `PATCH /api/repair/schedule/:id/confirm` — 일정 확정 (타임라인에 `confirmed` 기록)
+- `POST /api/repair/status` — 수리 상태 변경 (타임라인에 이력 추가)
+- `GET /api/repair/timeline?reportId=` — 이력 조회 + `currentStatus`
 
-파일: `src/routes/vendors.routes.ts`, `src/routes/quotes.routes.ts`,
-`src/controllers/vendors.controller.ts`, `src/controllers/quotes.controller.ts`
+파일: `src/routes/{vendors,quotes,repair}.routes.ts`,
+`src/controllers/{vendors,quotes,repair}.controller.ts`
+
+DB: 테이블 DDL은 `supabase/schema.sql`에 이미 있음. B가 추가로 돌릴 것:
+
+- `db/001_vendor_matching.sql` — vendors 데모 시딩 15건 (재실행 안전)
+- `db/002_vendors_rating_active.sql` — **팀 공유 후 실행.** `vendors.rating` /
+  `vendors.is_active` 컬럼 추가. `POST /api/vendors/match`가 `is_active`로
+  필터하므로 이걸 돌려야 매칭 API가 동작함.
+
+`quotes.status`는 DB 기본값이 `pending`이지만 B 범위에서는 `recommended` /
+`selected` 두 값만 쓰며, `createQuote`가 `recommended`를 명시해서 넣음.
+`quotes.is_outlier` 컬럼은 사용하지 않음 — median은 조회 시점에 계산함.
+
+median / 이상치 판정 검증: `npx ts-node src/controllers/quotes.controller.check.ts`
 
 ---
 

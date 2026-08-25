@@ -74,9 +74,14 @@ export async function createAutoApprovalPolicy(req: AuthedRequest, res: Response
     return res.status(400).json({ error: 'category(string), auto_approve_limit(number)이 필요합니다.' });
   }
 
+  // landlord_auto_approval_policy는 (landlord_id, category)에 unique 제약이 있어서
+  // 같은 카테고리로 다시 저장하면 insert는 409로 실패한다. upsert로 덮어쓴다.
   const { data, error } = await supabaseAdmin
     .from('landlord_auto_approval_policy')
-    .insert({ landlord_id: landlordId, category, auto_approve_limit })
+    .upsert(
+      { landlord_id: landlordId, category, auto_approve_limit },
+      { onConflict: 'landlord_id,category' }
+    )
     .select()
     .single();
 

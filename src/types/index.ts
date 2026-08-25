@@ -13,11 +13,24 @@ export interface User {
 
 export type RecommendedPath = 'self_fix' | 'manufacturer_as' | 'vendor_match';
 
+// 공용 카테고리. reports / vendors / manufacturer_as_info /
+// landlord_auto_approval_policy 가 조인 키로 공유하며 DB에 CHECK 제약이 걸려 있다.
+// 값을 추가/변경할 때는 supabase/schema.sql 의 네 테이블을 전부 같이 고칠 것.
+export type RepairCategory =
+  | 'plumbing'
+  | 'electrical'
+  | 'heating'
+  | 'appliance'
+  | 'door_window'
+  | 'interior'
+  | 'pest'
+  | 'other';
+
 export interface Report {
   id: string;
   tenant_id: string;
   landlord_id: string;
-  photo_url: string | null;
+  photo_url: string;
   description: string | null;
   category: string | null;
   severity: string | null;
@@ -38,18 +51,24 @@ export interface ManufacturerAsInfo {
 export interface Vendor {
   id: string;
   name: string;
-  categories: string[];
-  region: string | null;
+  categories: RepairCategory[];
+  region: string | null; // 컬럼만 존재. 현재 매칭 필터에는 사용하지 않음
   phone: string | null;
+  // rating / is_active 는 db/002_vendors_rating_active.sql 로 추가되는 컬럼.
+  // 002를 실행하지 않으면 이 두 필드는 응답에 존재하지 않는다.
+  rating: number;
+  is_active: boolean;
   created_at: string;
 }
+
+export type QuoteStatus = 'recommended' | 'selected';
 
 export interface Quote {
   id: string;
   report_id: string;
   vendor_id: string;
   price: number;
-  status: string;
+  status: QuoteStatus;
   is_outlier: boolean;
   created_at: string;
 }
