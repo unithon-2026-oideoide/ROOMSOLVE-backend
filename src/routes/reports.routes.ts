@@ -107,41 +107,39 @@ reportsRouter.post('/', asyncHandler(createReport));
  * @swagger
  * /api/reports:
  *   get:
- *     summary: 리포트 목록 조회
- *     description: (스텁) 현재는 200 placeholder만 반환함. tenant_id/status 필터 및 페이지네이션 추가 예정.
+ *     summary: 내 신고 목록 조회
+ *     description: |
+ *       로그인한 세입자 본인의 신고만 최신순으로 반환한다.
+ *       tenant_id는 쿼리로 받지 않는다 — 받으면 남의 id로 조회할 수 있기 때문이다.
+ *       임대인이 자기 소속 신고를 보는 경로는 GET /api/landlord/requests로 따로 있다.
  *     tags: [Reports]
  *     parameters:
- *       - in: query
- *         name: tenant_id
- *         schema:
- *           type: string
- *           format: uuid
- *         description: 특정 세입자의 리포트만 조회 (구현 예정)
  *       - in: query
  *         name: status
  *         schema:
  *           type: string
- *         description: 상태 필터 (구현 예정)
+ *           example: pending
+ *         description: 상태로 거르기 (생략 시 전체)
  *     responses:
  *       200:
- *         description: 목록 조회 성공 (구현 완료 후) / 현재는 placeholder 메시지
+ *         description: 목록 조회 성공
  *         content:
  *           application/json:
  *             schema:
- *               oneOf:
- *                 - type: object
- *                   properties:
- *                     reports:
- *                       type: array
- *                       items:
- *                         $ref: '#/components/schemas/Report'
- *                 - type: object
- *                   properties:
- *                     message:
- *                       type: string
- *                       example: 'TODO(팀원A): listReports 구현 필요'
+ *               type: object
+ *               properties:
+ *                 reports:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Report'
+ *       401:
+ *         description: 토큰 누락 또는 만료
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  *       500:
- *         description: 서버 오류 (구현 완료 후)
+ *         description: 서버 오류
  *         content:
  *           application/json:
  *             schema:
@@ -153,8 +151,10 @@ reportsRouter.get('/', asyncHandler(listReports));
  * @swagger
  * /api/reports/{id}:
  *   get:
- *     summary: 리포트 단건 조회
- *     description: (스텁) 현재는 200 placeholder만 반환함.
+ *     summary: 내 신고 단건 조회
+ *     description: |
+ *       본인의 신고만 조회할 수 있다. 남의 신고 id를 넣으면 403이 아니라 404를 준다 —
+ *       403이면 "그 id의 신고가 존재한다"는 사실이 새기 때문이다.
  *     tags: [Reports]
  *     parameters:
  *       - in: path
@@ -165,22 +165,22 @@ reportsRouter.get('/', asyncHandler(listReports));
  *           format: uuid
  *     responses:
  *       200:
- *         description: 조회 성공 (구현 완료 후) / 현재는 placeholder 메시지
+ *         description: 조회 성공
  *         content:
  *           application/json:
  *             schema:
- *               oneOf:
- *                 - type: object
- *                   properties:
- *                     report:
- *                       $ref: '#/components/schemas/Report'
- *                 - type: object
- *                   properties:
- *                     message:
- *                       type: string
- *                       example: 'TODO(팀원A): getReport 구현 필요'
+ *               type: object
+ *               properties:
+ *                 report:
+ *                   $ref: '#/components/schemas/Report'
+ *       401:
+ *         description: 토큰 누락 또는 만료
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  *       404:
- *         description: 존재하지 않는 리포트 (구현 완료 후)
+ *         description: 존재하지 않거나 본인의 신고가 아님
  *         content:
  *           application/json:
  *             schema:
@@ -194,9 +194,13 @@ reportsRouter.get('/:id', asyncHandler(getReport));
  *   post:
  *     summary: 사진/설명 기반 AI 하자 분석
  *     description: |
- *       (스텁) 현재는 200 placeholder만 반환함. Claude Vision 등으로 분석 후
- *       category/severity/recommended_path/self_fix_guide를 반환하는 것이 목표.
- *       landlord_id는 이 API와 무관 — POST /api/reports(createReport)에서 별도 처리.
+ *       Claude Vision으로 사진을 분석해 카테고리·긴급도·해결 경로를 판정한다.
+ *       **분류만 하고 DB에 저장하지 않는다.** 결과를 세입자에게 확인시킨 뒤
+ *       POST /api/reports에 그대로 넘겨서 저장하는 흐름이다.
+ *       landlord_id는 이 API와 무관하다.
+ *
+ *       사진은 앞의 4장까지만 본다. 장수가 늘수록 비용과 응답 시간이 그대로 늘고,
+ *       같은 하자를 여러 각도로 찍은 것이라 4장이면 판단에 충분하다.
  *     tags: [Reports]
  *     requestBody:
  *       required: true
@@ -204,47 +208,71 @@ reportsRouter.get('/:id', asyncHandler(getReport));
  *         application/json:
  *           schema:
  *             type: object
+ *             required: [photo_urls]
  *             properties:
+ *               photo_urls:
+ *                 type: array
+ *                 minItems: 1
+ *                 items:
+ *                   type: string
+ *                   format: uri
+ *                 description: POST /api/uploads로 받은 url 목록. 앞의 4장만 분석에 쓴다.
  *               photo_url:
  *                 type: string
  *                 format: uri
+ *                 description: 사진 1장만 보낼 때 쓰는 예전 방식. photo_urls가 있으면 무시된다.
  *               description:
  *                 type: string
  *                 nullable: true
+ *                 description: 세입자가 남긴 설명. 있으면 판정 정확도가 올라간다.
  *     responses:
  *       200:
- *         description: 분석 성공 (구현 완료 후) / 현재는 placeholder 메시지
+ *         description: 분석 성공
  *         content:
  *           application/json:
  *             schema:
- *               oneOf:
- *                 - type: object
- *                   properties:
- *                     category:
- *                       type: string
- *                       enum: [plumbing, electrical, heating, appliance, door_window, interior, pest, other]
- *                     severity:
- *                       type: string
- *                       enum: [low, medium, high, emergency]
- *                     recommended_path:
- *                       type: string
- *                       enum: [self_fix, manufacturer_as, vendor_match]
- *                     self_fix_guide:
- *                       type: string
- *                       nullable: true
- *                 - type: object
- *                   properties:
- *                     message:
- *                       type: string
- *                       example: 'TODO(팀원A): analyzeReport 구현 필요'
+ *               type: object
+ *               required: [category, severity, recommended_path, self_fix_guide]
+ *               properties:
+ *                 category:
+ *                   type: string
+ *                   enum: [plumbing, electrical, heating, appliance, door_window, interior, pest, other]
+ *                 severity:
+ *                   type: string
+ *                   enum: [low, medium, high, emergency]
+ *                 recommended_path:
+ *                   type: string
+ *                   enum: [self_fix, manufacturer_as, vendor_match]
+ *                 self_fix_guide:
+ *                   type: string
+ *                   nullable: true
+ *                   description: recommended_path가 self_fix일 때만 채워지고, 그 외에는 null이다.
  *       400:
- *         description: 분석 입력값 누락 (구현 완료 후)
+ *         description: photo_urls 누락 또는 빈 배열
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
- *       500:
- *         description: 분석 실패 (구현 완료 후)
+ *       401:
+ *         description: 토큰 누락 또는 만료
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       429:
+ *         description: AI 호출 한도 초과
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       502:
+ *         description: AI 호출 실패 또는 응답 해석 실패
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       503:
+ *         description: ANTHROPIC_API_KEY 미설정 또는 잘못된 키
  *         content:
  *           application/json:
  *             schema:
@@ -264,7 +292,14 @@ export const manufacturerAsRouter = Router();
  * /api/manufacturer-as:
  *   get:
  *     summary: 제조사 A/S 정보 조회
- *     description: (스텁) 현재는 200 placeholder만 반환함. category 기준으로 manufacturer_as_info 조회 예정.
+ *     description: |
+ *       category에 해당하는 제조사 A/S 연락처를 제조사명 순으로 반환한다.
+ *       analyze 결과의 recommended_path가 manufacturer_as일 때 프론트가 호출한다.
+ *
+ *       제조사 A/S가 의미 없는 카테고리(plumbing, interior 등)는 빈 배열이 나온다.
+ *       그 경우 전문업체 매칭으로 넘기면 된다.
+ *
+ *       사용자 데이터가 아닌 고정 참조 데이터라 인증이 필요 없다.
  *     tags: [Reports]
  *     parameters:
  *       - in: query
@@ -276,24 +311,24 @@ export const manufacturerAsRouter = Router();
  *         description: 조회할 하자 카테고리
  *     responses:
  *       200:
- *         description: 조회 성공 (구현 완료 후) / 현재는 placeholder 메시지
+ *         description: 조회 성공 (해당 카테고리에 등록된 제조사가 없으면 빈 배열)
  *         content:
  *           application/json:
  *             schema:
- *               oneOf:
- *                 - type: object
- *                   properties:
- *                     results:
- *                       type: array
- *                       items:
- *                         $ref: '#/components/schemas/ManufacturerAsInfo'
- *                 - type: object
- *                   properties:
- *                     message:
- *                       type: string
- *                       example: 'TODO(팀원A): getManufacturerAs 구현 필요'
+ *               type: object
+ *               properties:
+ *                 results:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/ManufacturerAsInfo'
  *       400:
- *         description: category 누락 (구현 완료 후)
+ *         description: category 누락 또는 허용 목록 밖의 값
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: 서버 오류
  *         content:
  *           application/json:
  *             schema:
