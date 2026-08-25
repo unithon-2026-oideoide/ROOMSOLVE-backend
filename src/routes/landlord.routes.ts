@@ -6,6 +6,7 @@ import {
   getRequest,
   approveRequest,
   createAutoApprovalPolicy,
+  listAutoApprovalPolicies,
   listProperties,
 } from '../controllers/landlord.controller';
 
@@ -218,6 +219,42 @@ router.patch('/requests/:id/approve', asyncHandler(approveRequest));
  *               $ref: '#/components/schemas/Error'
  */
 router.post('/auto-approval-policy', asyncHandler(createAutoApprovalPolicy));
+
+/**
+ * @swagger
+ * /api/landlord/auto-approval-policy:
+ *   get:
+ *     summary: 카테고리별 자동승인 한도 목록 조회
+ *     description: 로그인한 임대인이 저장해둔 자동승인 한도를 전부 반환한다. 저장된 게 없으면 빈 배열.
+ *     tags: [Landlord]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: 조회 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 policies:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/LandlordAutoApprovalPolicy'
+ *       401:
+ *         description: 인증 토큰 누락 또는 만료
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: 서버 오류
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+router.get('/auto-approval-policy', asyncHandler(listAutoApprovalPolicies));
 
 /**
  * @swagger
