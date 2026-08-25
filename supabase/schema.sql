@@ -4,16 +4,10 @@
 --    create table에서 에러가 난다. 새 DB를 처음부터 만들 때만 쓰는 파일이고,
 --    평소에는 "지금 DB가 어떤 모양인지" 확인하는 용도로 읽는다.
 --
--- 스키마를 바꿀 때는 이 파일만 고치지 말고, db/ 에 번호를 붙인 마이그레이션
--- (alter table ...)을 추가해 실제 DB에 적용한 뒤 이 파일도 같이 갱신할 것.
--- Supabase 프로젝트가 하나뿐이라 DDL은 실행 즉시 전원에게 반영된다.
---
---   db/001_vendor_matching.sql       vendors 시딩 15개 (데이터만)
---   db/002_vendors_rating_active.sql vendors.rating / is_active 추가 + quotes 부분 인덱스
---   db/007_vendors_signup_link.sql   vendors.user_id / business_number 추가 (수리업체 가입)
---   db/008_landlord_tenant_link.sql  users.landlord_code / linked_landlord_id 추가 (초대 코드 매칭)
---   db/009_quote_visit_and_reject.sql quotes.status CHECK(+rejected) / quotes.proposed_visit_at /
---                                    reports.available_times
+-- 번호를 붙인 db/ 마이그레이션 이력은 없앴다. 이 파일 하나가 유일한 기준이다.
+-- 스키마를 바꿀 때는 Supabase에서 ALTER를 직접 돌린 뒤 이 파일도 반드시 같이 고칠 것.
+-- Supabase 프로젝트가 하나뿐이라 DDL은 실행 즉시 전원에게 반영되고, 이 파일을 안 고치면
+-- 다음 사람이 새 DB를 만들 때 그 변경이 통째로 빠진다.
 --
 -- NOT NULL과 기본값은 PostgREST가 노출하는 실제 스키마에서 읽어 맞춘 것이다.
 -- 실제 DB는 PK와 핵심 FK 말고는 NOT NULL이 거의 걸려 있지 않다. 제약이 느슨하다는
@@ -27,7 +21,7 @@
 --
 -- status 계열은 CHECK가 없다. 실제로 쓰이는 값은 아래와 같다.
 --   reports.status                : pending (기본값) → approved | rejected
---   quotes.status                 : recommended | selected | rejected (db/009로 CHECK가 걸렸다)
+--   quotes.status                 : recommended | selected | rejected (CHECK 제약 있음)
 --                                   selected 하나를 고르면 같은 신고의 나머지는 자동 rejected
 --   repair_status_timeline.status : scheduled | confirmed | in_progress | done
 
@@ -38,7 +32,7 @@
 -- (id에 gen_random_uuid() 기본값이 붙어 있지만 실제로는 쓰이지 않는다.
 --  auth.users로의 외래키가 실제로 걸려 있는지는 PostgREST로 확인되지 않았다.)
 -- ---------------------------------------------------------------------------
--- landlord_code / linked_landlord_id 는 db/008_landlord_tenant_link.sql 로 추가된 컬럼.
+-- landlord_code / linked_landlord_id 는 임대인 초대 코드 매칭용 컬럼.
 -- landlord_code   : role이 landlord인 계정에만 회원가입 시 자동 발급되는 6자리 초대 코드.
 -- linked_landlord_id : 세입자가 그 코드를 입력해 연결한 임대인의 id(PATCH /api/users/link-landlord).
 --                       reports.landlord_id를 생략하고 신고하면 createReport가 이 값을 대신 쓴다.
@@ -85,7 +79,11 @@ create table public.reports (
   recommended_path text check (recommended_path in ('self_fix', 'manufacturer_as', 'vendor_match')),
   -- 자가조치 가이드. types/index.ts와 Swagger 모두 문자열로 확정돼 있다.
   self_fix_guide   text,
-  -- 세입자가 집에 있는 시간대. 자유 텍스트. db/009_quote_visit_and_reject.sql
+  -- 가전 하자일 때만 채워진다. analyze가 사실 확인만 하고(어떤 가전인가) 부담 주체는
+  -- 정하지 않는다. reports.category 8종과는 별개 축이다.
+  appliance_type   text check (appliance_type in ('aircon', 'boiler', 'induction',
+                                                  'refrigerator', 'washer')),
+  -- 세입자가 집에 있는 시간대. 자유 텍스트.
   available_times  text,
   status           text default 'pending',
   created_at       timestamptz default now()
@@ -102,6 +100,9 @@ create table public.manufacturer_as_info (
   id                uuid primary key default gen_random_uuid(),
   category          text not null check (category in ('plumbing', 'electrical', 'heating', 'appliance',
                                                       'door_window', 'interior', 'pest', 'other')),
+  -- 가전 종류별 A/S. NULL이면 해당 카테고리의 범용 A/S 연락처다.
+  appliance_type    text check (appliance_type in ('aircon', 'boiler', 'induction',
+                                                   'refrigerator', 'washer')),
   manufacturer_name text not null,
   as_phone          text,
   as_url            text
@@ -111,14 +112,36 @@ create index manufacturer_as_info_category_idx on public.manufacturer_as_info (c
 
 
 -- ---------------------------------------------------------------------------
+-- appliance_reference_price : 가전 종류별 신품 기준가. 고정 참조 데이터.
+--
+-- GET /api/quotes 가 applianceType을 받으면 견적 중앙값을 이 값과 비교해
+-- 수리/교체를 권한다(quotes.controller.ts buildAdvice). 기준은 종류별 최저가
+-- (standard 등급)다 — "같은 걸 새로 사면 얼마"가 비교 대상이라 premium으로 잡으면
+-- 교체 권장이 거의 나오지 않는다.
+--
+-- ⚠️ 지금 이 테이블은 비어 있다. 행이 없으면 buildAdvice가 항상 null을 반환해
+-- 교체 권장 기능이 조용히 꺼진 상태가 된다.
+-- ---------------------------------------------------------------------------
+create table public.appliance_reference_price (
+  id             uuid primary key default gen_random_uuid(),
+  appliance_type text not null check (appliance_type in ('aircon', 'boiler', 'induction',
+                                                         'refrigerator', 'washer')),
+  grade          text not null check (grade in ('standard', 'premium')),
+  price          integer not null check (price >= 0),
+  note           text,
+  created_at     timestamptz not null default now()
+);
+
+
+-- ---------------------------------------------------------------------------
 -- vendors : 전문 수리업체. 한 업체가 여러 카테고리를 다룰 수 있다.
 -- categories의 CHECK는 배열의 모든 원소가 허용 목록 안에 있는지를 본다(<@ 는 포함 연산자).
--- rating / is_active 는 db/002_vendors_rating_active.sql 로 추가된 컬럼이다.
+-- rating / is_active 는 매칭·순위에 쓰는 컬럼이다.
 -- matchVendors가 is_active로 필터하므로 매칭 API에 필수다.
 -- ---------------------------------------------------------------------------
 create table public.vendors (
   id         uuid primary key default gen_random_uuid(),
-  -- technician role로 가입한 계정과의 연결. db/007_vendors_signup_link.sql로 추가됐다.
+  -- technician role로 가입한 계정과의 연결.
   -- 시딩된 데모 업체 15곳은 계정이 없어 NULL이다.
   user_id    uuid references public.users (id) on delete cascade,
   business_number text,
@@ -127,7 +150,7 @@ create table public.vendors (
                categories <@ array['plumbing', 'electrical', 'heating', 'appliance',
                                    'door_window', 'interior', 'pest', 'other']::text[]
              ),
-  -- 가입 시점에는 지역을 받지 않으므로 db/007에서 NOT NULL을 풀었다.
+  -- 가입 시점에는 지역을 받지 않으므로 NOT NULL이 아니다.
   region     text,
   phone      text,
   rating     numeric(2,1) not null default 0.0,
@@ -137,7 +160,7 @@ create table public.vendors (
 
 create index vendors_categories_idx on public.vendors using gin (categories);
 
--- 한 계정당 업체 프로필 하나. db/007_vendors_signup_link.sql로 추가됐다.
+-- 한 계정당 업체 프로필 하나.
 create unique index vendors_user_id_idx on public.vendors (user_id) where user_id is not null;
 
 
@@ -151,11 +174,10 @@ create table public.quotes (
   report_id  uuid not null references public.reports (id) on delete cascade,
   vendor_id  uuid not null references public.vendors (id) on delete cascade,
   price      integer not null check (price >= 0),
-  -- ⚠️ 기본값은 'pending'이지만 db/009_quote_visit_and_reject.sql이 CHECK를 걸어서
+  -- ⚠️ 기본값은 'pending'이지만 CHECK 제약이 걸려 있어서
   --    status를 명시하지 않은 insert는 이제 통과하지 않는다. createQuote는 항상 'recommended'를 넣는다.
   status     text default 'pending' check (status in ('recommended', 'selected', 'rejected')),
   -- 업체가 제안한 방문 시간. selected로 바뀌는 순간 이 값으로 repair_schedule이 자동 생성된다.
-  -- db/009_quote_visit_and_reject.sql
   proposed_visit_at timestamptz,
   is_outlier boolean default false,
   created_at timestamptz default now()
@@ -163,7 +185,7 @@ create table public.quotes (
 
 create index quotes_report_id_idx on public.quotes (report_id);
 
--- 한 report에서 selected는 하나만. db/002_vendors_rating_active.sql로 추가됐다.
+-- 한 report에서 selected는 하나만.
 create unique index quotes_one_selected_per_report_idx
   on public.quotes (report_id) where status = 'selected';
 
@@ -211,6 +233,10 @@ create table public.repair_status_timeline (
   id         uuid primary key default gen_random_uuid(),
   report_id  uuid not null references public.reports (id) on delete cascade,
   status     text not null,
+  -- ⚠️ 컬럼은 DB에 있지만 코드는 쓰지 않는다. 수리 완료 사진 기능을 넣지 않기로
+  -- 정한 뒤에 이 컬럼이 DB에 추가됐다(결정과 엇갈림). 기능을 되살릴 게 아니라면
+  -- 지워도 되고, 남겨 둬도 항상 NULL이라 동작에는 지장이 없다.
+  photo_url  text,
   changed_at timestamptz default now()
 );
 
