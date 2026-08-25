@@ -3,6 +3,10 @@
 
 export type UserRole = 'tenant' | 'landlord' | 'technician';
 
+// UserRole의 실제 값 목록. 컨트롤러의 role 검증(auth.controller.ts, users.controller.ts)이
+// 이 배열 하나를 같이 쓴다 — 값을 추가/변경할 때 여기만 고치면 된다.
+export const USER_ROLES: UserRole[] = ['tenant', 'landlord', 'technician'];
+
 export interface User {
   id: string;
   name: string;
@@ -39,6 +43,7 @@ export interface Report {
   severity: string | null;
   recommended_path: RecommendedPath | null;
   self_fix_guide: string | null;
+  appliance_type: ApplianceType | null; // 가전 하자일 때만. db/006
   status: string;
   created_at: string;
 }
@@ -46,9 +51,46 @@ export interface Report {
 export interface ManufacturerAsInfo {
   id: string;
   category: string;
+  // NULL이면 해당 카테고리 범용 A/S. db/006
+  appliance_type: ApplianceType | null;
   manufacturer_name: string;
   as_phone: string | null;
   as_url: string | null;
+}
+
+// 가전 종류. 교체 권장 판정(GET /api/quotes)의 신품 기준가 조회에만 쓴다.
+// reports.category 8종과는 별개 축이다 — 가전 하자 진단(팀원A 범위)에서
+// 하위 종류를 다루게 되면 그쪽 값과 맞출 것.
+export type ApplianceType = 'aircon' | 'boiler' | 'induction' | 'refrigerator' | 'washer';
+
+export const APPLIANCE_TYPES: ApplianceType[] = [
+  'aircon',
+  'boiler',
+  'induction',
+  'refrigerator',
+  'washer',
+];
+
+// 가전 보충 질문 Q1 — 소유 관계. 부담 주체 판정의 1차 분기다.
+export type ApplianceOwnership = 'landlord_builtin' | 'landlord_option' | 'tenant_purchased';
+
+// 가전 보충 질문 Q2 — 사용 연차. 제조사 보증기간(통상 2년) 안팎을 가른다.
+export type PurchaseAge = 'within_2y' | 'from_2y_to_10y' | 'over_10y' | 'unknown';
+
+// 수리비 부담 주체.
+// - tenant               : 임차인이 직접 구매한 가전 → 임차인 부담
+// - manufacturer_warranty: 제조사 보증기간 내 → 무상 수리 대상
+// - landlord             : 기본 설비(빌트인) → 임대인 부담 (민법 제623조)
+// - negotiable           : 옵션 가전 보증 만료 → 계약서 특약에 따라 갈림
+export type Liability = 'tenant' | 'manufacturer_warranty' | 'landlord' | 'negotiable';
+
+export interface ApplianceReferencePrice {
+  id: string;
+  appliance_type: ApplianceType;
+  grade: 'standard' | 'premium';
+  price: number;
+  note: string | null;
+  created_at: string;
 }
 
 export interface Vendor {

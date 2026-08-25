@@ -28,12 +28,31 @@ const swaggerSpec = swaggerJSDoc({
             error: { type: 'string', example: '잘못된 요청입니다.' },
           },
         },
+        // 아래 네 개는 여러 스키마/요청 바디가 공유하는 enum이라 여기 한 곳에서만
+        // 정의하고 나머지는 $ref로 참조한다. 값이 바뀌면(=DB CHECK 제약이 바뀌면)
+        // 여기 하나만 고치면 된다.
+        UserRole: {
+          type: 'string',
+          enum: ['tenant', 'landlord', 'technician'],
+        },
+        Category: {
+          type: 'string',
+          enum: ['plumbing', 'electrical', 'heating', 'appliance', 'door_window', 'interior', 'pest', 'other'],
+        },
+        Severity: {
+          type: 'string',
+          enum: ['low', 'medium', 'high', 'emergency'],
+        },
+        RecommendedPath: {
+          type: 'string',
+          enum: ['self_fix', 'manufacturer_as', 'vendor_match'],
+        },
         User: {
           type: 'object',
           properties: {
             id: { type: 'string', format: 'uuid' },
             name: { type: 'string' },
-            role: { type: 'string', enum: ['tenant', 'landlord', 'technician'] },
+            role: { $ref: '#/components/schemas/UserRole' },
             phone: { type: 'string', nullable: true },
             created_at: { type: 'string', format: 'date-time' },
           },
@@ -58,17 +77,9 @@ const swaggerSpec = swaggerJSDoc({
             landlord_id: { type: 'string', format: 'uuid' },
             photo_url: { type: 'string', format: 'uri' },
             description: { type: 'string', nullable: true },
-            category: {
-              type: 'string',
-              nullable: true,
-              enum: ['plumbing', 'electrical', 'heating', 'appliance', 'door_window', 'interior', 'pest', 'other'],
-            },
-            severity: { type: 'string', nullable: true, enum: ['low', 'medium', 'high', 'emergency'] },
-            recommended_path: {
-              type: 'string',
-              nullable: true,
-              enum: ['self_fix', 'manufacturer_as', 'vendor_match'],
-            },
+            category: { allOf: [{ $ref: '#/components/schemas/Category' }], nullable: true },
+            severity: { allOf: [{ $ref: '#/components/schemas/Severity' }], nullable: true },
+            recommended_path: { allOf: [{ $ref: '#/components/schemas/RecommendedPath' }], nullable: true },
             self_fix_guide: { type: 'string', nullable: true },
             status: { type: 'string', example: 'requested' },
             created_at: { type: 'string', format: 'date-time' },
@@ -79,10 +90,7 @@ const swaggerSpec = swaggerJSDoc({
           properties: {
             id: { type: 'string', format: 'uuid' },
             landlord_id: { type: 'string', format: 'uuid' },
-            category: {
-              type: 'string',
-              enum: ['plumbing', 'electrical', 'heating', 'appliance', 'door_window', 'interior', 'pest', 'other'],
-            },
+            category: { $ref: '#/components/schemas/Category' },
             auto_approve_limit: { type: 'integer', example: 50000 },
             created_at: { type: 'string', format: 'date-time' },
           },
@@ -124,6 +132,77 @@ const swaggerSpec = swaggerJSDoc({
             },
           },
         },
+        ApplianceJudgement: {
+          description:
+            'POST /api/reports/analyze 의 가전 판정. 가전이 아니면 appliance 자체가 null. 보충 질문이 남아 있으면 questions 에 다음 질문이 담기고 liability 는 null.',
+          type: 'object',
+          properties: {
+            applianceType: {
+              type: 'string',
+              enum: ['aircon', 'boiler', 'induction', 'refrigerator', 'washer'],
+            },
+            questions: {
+              type: 'array',
+              description: '아직 답을 받지 못한 보충 질문. 비어 있으면 판정이 끝난 것.',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string', enum: ['ownership', 'purchase_age'] },
+                  text: { type: 'string', example: '이 가전은 임대인이 제공한 것인가요?' },
+                  options: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: { value: { type: 'string' }, label: { type: 'string' } },
+                    },
+                  },
+                },
+              },
+            },
+            liability: {
+              type: 'string',
+              nullable: true,
+              enum: ['tenant', 'manufacturer_warranty', 'landlord', 'negotiable'],
+              description:
+                'tenant=임차인 구매 / manufacturer_warranty=보증기간 내 무상 / landlord=빌트인 기본설비(민법 623조) / negotiable=옵션 가전, 특약에 따라 갈림',
+            },
+            basis: { type: 'string', description: '판정 근거' },
+            notice: { type: 'string', description: '세입자에게 보여줄 안내 문구' },
+            warning: {
+              type: 'string',
+              nullable: true,
+              description: '보증기간 내일 때 사설 업체 이용 시 유상 전환 경고',
+            },
+            confidence: {
+              type: 'number',
+              nullable: true,
+              description: '판정 확신도 0~1. negotiable 이나 연차 모름이면 낮게 나온다.',
+            },
+            blockVendorMatch: {
+              type: 'boolean',
+              description: 'true 면 업체 매칭으로 넘기지 말고 제조사 A/S 안내로 종료할 것',
+            },
+          },
+        },
+        ReplacementAdvice: {
+          description:
+            'GET /api/quotes 의 수리/교체 권장. 수리 예상비(견적 중앙값)가 동급 신품가의 60% 이상이면 replace.',
+          type: 'object',
+          properties: {
+            repairEstimate: {
+              type: 'integer',
+              example: 235000,
+              description: '수리 예상비. 해당 리포트 견적들의 중앙값을 쓴다(이상치 견적 하나에 판정이 휘둘리지 않도록).',
+            },
+            replacementPrice: {
+              type: 'integer',
+              example: 700000,
+              description: '동급 신품가. appliance_reference_price 의 해당 종류 최저가(기본형).',
+            },
+            recommendation: { type: 'string', enum: ['repair', 'replace'] },
+            reason: { type: 'string', example: '수리 예상비가 동급 신품가(벽걸이 기본형)의 34%로 60% 미만입니다. 수리가 낫습니다.' },
+          },
+        },
         Vendor: {
           type: 'object',
           properties: {
@@ -131,10 +210,7 @@ const swaggerSpec = swaggerJSDoc({
             name: { type: 'string' },
             categories: {
               type: 'array',
-              items: {
-                type: 'string',
-                enum: ['plumbing', 'electrical', 'heating', 'appliance', 'door_window', 'interior', 'pest', 'other'],
-              },
+              items: { $ref: '#/components/schemas/Category' },
             },
             region: { type: 'string', nullable: true, description: '컬럼만 존재 — 매칭 필터에는 아직 미사용' },
             phone: { type: 'string', nullable: true },
@@ -170,10 +246,7 @@ const swaggerSpec = swaggerJSDoc({
           type: 'object',
           properties: {
             id: { type: 'string', format: 'uuid' },
-            category: {
-              type: 'string',
-              enum: ['plumbing', 'electrical', 'heating', 'appliance', 'door_window', 'interior', 'pest', 'other'],
-            },
+            category: { $ref: '#/components/schemas/Category' },
             manufacturer_name: { type: 'string' },
             as_phone: { type: 'string', nullable: true },
             as_url: { type: 'string', nullable: true },
