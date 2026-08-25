@@ -7,6 +7,7 @@ import landlordRoutes from './routes/landlord.routes';
 import reportsRoutes, { manufacturerAsRouter } from './routes/reports.routes';
 import quotesRoutes from './routes/quotes.routes';
 import vendorsRoutes from './routes/vendors.routes';
+import repairRoutes from './routes/repair.routes';
 import uploadsRoutes from './routes/uploads.routes';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler';
 
@@ -24,6 +25,7 @@ app.use('/api/reports', reportsRoutes);
 app.use('/api/manufacturer-as', manufacturerAsRouter);
 app.use('/api/quotes', quotesRoutes);
 app.use('/api/vendors', vendorsRoutes);
+app.use('/api/repair', repairRoutes);
 app.use('/api/uploads', uploadsRoutes);
 
 app.use(notFoundHandler);
