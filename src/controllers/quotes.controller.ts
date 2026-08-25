@@ -242,6 +242,9 @@ async function autoCreateSchedule(
 //   2. 선택된 견적의 proposed_visit_at으로 repair_schedule을 자동 생성하고(확정 상태),
 //      repair_status_timeline에도 'confirmed'를 기록한다. autoCreateSchedule() 참고 —
 //      업체 계정이 없거나 방문 시간이 없으면 조용히 건너뛴다(에러 아님).
+//   3. reports.status를 approved로 올린다. 바뀐 플로우에서는 임대인이 견적을 고르는
+//      행위가 곧 승인이다. 이걸 안 하면 업체는 정해졌는데 신고는 pending으로 남아,
+//      임대인 화면이 아직 처리 안 된 건으로 계속 보여준다.
 //
 // db/009_quote_visit_and_reject.sql로 quotes.status CHECK에 rejected가 추가돼야
 // 아래 update가 통과한다.
@@ -274,6 +277,17 @@ export async function updateQuoteStatus(req: Request, res: Response) {
 
     if (rejectError) {
       return res.status(500).json({ error: rejectError.message });
+    }
+
+    // 견적 선택이 곧 승인이다. 예전 승인 버튼(PATCH /api/landlord/requests/:id/approve)과
+    // 달리 이 경로는 업체까지 확정되므로, 여기서 신고 상태를 함께 올려야 둘이 어긋나지 않는다.
+    const { error: reportError } = await supabaseAdmin
+      .from('reports')
+      .update({ status: 'approved' })
+      .eq('id', target.report_id);
+
+    if (reportError) {
+      return res.status(500).json({ error: reportError.message });
     }
   }
 
