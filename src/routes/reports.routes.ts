@@ -245,31 +245,19 @@ reportsRouter.get('/:id', asyncHandler(getReport));
  *                 type: string
  *                 nullable: true
  *                 description: 세입자가 남긴 설명. 있으면 판정 정확도가 올라간다.
- *               answers:
- *                 type: object
- *                 description: >
- *                   가전 보충 질문의 답. 응답의 appliance.questions 에 질문이 담겨 오면
- *                   답을 모아 같은 엔드포인트로 다시 호출한다. 서버에 대화 세션을 두지
- *                   않으므로 매번 photo_urls 와 함께 보내야 한다.
- *                 properties:
- *                   ownership:
- *                     type: string
- *                     enum: [landlord_builtin, landlord_option, tenant_purchased]
- *                   purchase_age:
- *                     type: string
- *                     enum: [within_2y, from_2y_to_10y, over_10y, unknown]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
  *         description: >
- *           분석 성공. 고장난 것이 가전이 아니면 appliance는 null이다. 가전이면
- *           appliance.questions에 아직 답하지 않은 보충 질문(ownership/purchase_age)이
- *           담겨 오고, 이 경우 appliance.liability는 null이다(요청 body의 answers에
- *           그 질문들의 답을 채워 같은 엔드포인트를 다시 호출하면 된다). 질문에 모두
- *           답하면 appliance.liability/basis/notice/warning/confidence/blockVendorMatch가
- *           채워지고, 최상위 recommended_path도 이 판정(judgeAppliance)이 정한 값으로
- *           덮어써진다 — LLM의 1차 추측보다 이 규칙 기반 판정이 우선한다.
+ *           분석 성공. 고장난 것이 가전이 아니면 appliance는 null이고 recommended_path는
+ *           LLM 판정 그대로다. 가전이면 appliance에 안내 문구가 담기고, 최상위
+ *           recommended_path는 LLM 추측과 무관하게 항상 manufacturer_as로 덮어써진다 —
+ *           가전은 대부분 브랜드 제품이라 제조사 A/S 센터가 있고, 보증기간 내에 사설
+ *           업체를 부르면 무상 수리 기회를 잃기 때문이다. 이어서
+ *           GET /api/reports/manufacturer-as?category=&applianceType= 로 연락처를 조회한다.
+ *           (보충 질문으로 부담 주체를 4갈래 판정하던 이전 방식은 제거됐다. 요청 body의
+ *           answers 파라미터도 더 이상 받지 않는다.)
  *         content:
  *           application/json:
  *             schema:
@@ -293,12 +281,17 @@ reportsRouter.get('/:id', asyncHandler(getReport));
  *                   type: string
  *                   nullable: true
  *                   enum: [aircon, boiler, induction, refrigerator, washer]
- *                   description: 고장난 것이 가전으로 보이면 종류, 아니면 null.
+ *                   description: 가전 하자가 아니면 null.
  *                 appliance:
  *                   nullable: true
+ *                   description: >
+ *                     가전 하자일 때만 채워진다. 이 경우 recommended_path 는 LLM 추측과 무관하게
+ *                     항상 manufacturer_as 로 덮어써진다 — 가전은 대부분 브랜드 제품이라 제조사
+ *                     A/S 센터가 있고, 보증기간 내에 사설 업체를 부르면 무상 수리 기회를 잃는다.
+ *                     이어서 GET /api/reports/manufacturer-as?category=&applianceType= 로
+ *                     연락처를 조회하면 된다.
  *                   allOf:
- *                     - $ref: '#/components/schemas/ApplianceJudgement'
- *                   description: appliance_type이 null이면 이 필드도 null이다.
+ *                     - $ref: '#/components/schemas/ApplianceGuidance'
  *       400:
  *         description: photo_urls 누락 또는 빈 배열
  *         content:

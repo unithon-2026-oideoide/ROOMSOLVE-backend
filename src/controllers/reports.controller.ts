@@ -5,10 +5,7 @@ import { getGemini, GEMINI_MODEL, GEMINI_FALLBACK_MODEL } from '../config/gemini
 import { AuthedRequest } from '../middleware/auth';
 import {
   APPLIANCE_TYPES,
-  ApplianceOwnership,
   ApplianceType,
-  Liability,
-  PurchaseAge,
   RecommendedPath,
   RepairCategory,
 } from '../types';
@@ -294,129 +291,29 @@ function respondGeminiError(res: Response, err: unknown) {
 }
 
 // ---------------------------------------------------------------------------
-// 가전 하자 판정
+// 가전 하자 → 제조사 A/S 일괄 안내
 //
-// 가전은 일반 하자와 흐름이 다르다 — 소유 관계와 보증기간에 따라 부담 주체가 갈리고,
-// 보증기간 내라면 사설 업체를 부르는 순간 무상 수리 기회를 잃는다.
+// 가전은 거의 전부 브랜드 제품이고 제조사마다 A/S 센터가 있다. 그래서 소유 관계나
+// 보증기간을 되묻지 않고 가전으로 판정되면 무조건 제조사 A/S로 보낸다.
+//   - 보증기간 내라면 사설 업체를 부르는 순간 무상 수리 기회를 잃는다.
+//   - 보증이 끝났어도 부품 수급과 분해 노하우는 제조사 쪽이 낫다.
 //
-// 판정은 전부 아래 룰로 한다. LLM은 "이게 어떤 가전인가"(사실 추출)까지만 하고
-// 부담 주체는 정하지 않는다 — 책임 판단을 확률적 출력에 맡기지 않기 위해서다.
+// 이전에는 소유 관계(빌트인/옵션/임차인 구매) + 사용 연차로 부담 주체를 4갈래
+// (임차인 / 제조사보증 / 임대인 / 협의)로 판정했다. 그 판정에는 프론트가 보충 질문을
+// 두 번 되물어야 했는데 실제로 되묻는 화면이 없어 한 번도 실행되지 않았고, 4갈래 중
+// 3갈래가 어차피 제조사 A/S로 수렴했다. 그래서 판정 자체를 걷어냈다.
+// (되살리려면 git에서 judgeAppliance / nextApplianceQuestions 를 찾을 것.)
+//
+// ⚠️ 이제 백엔드는 "누가 수리비를 부담하는가"를 판단하지 않는다. 화면에 비용 부담을
+//    표시하려면 그 값의 출처를 새로 정해야 한다 — 임의로 "임대인 부담"이라고 쓰면 안 된다.
+//    빌트인 가전이 임대인 수선의무(민법 제623조) 대상인 것은 맞지만, 그 판단은 사라졌다.
 // ---------------------------------------------------------------------------
 
-export interface ApplianceQuestion {
-  id: 'ownership' | 'purchase_age';
-  text: string;
-  options: { value: string; label: string }[];
-}
+const APPLIANCE_NOTICE =
+  '가전 하자는 제조사 A/S 센터로 접수하는 것이 가장 빠르고 안전합니다. 보증기간이 남아 있으면 무상 수리 대상일 수 있습니다.';
 
-const OWNERSHIP_QUESTION: ApplianceQuestion = {
-  id: 'ownership',
-  text: '이 가전은 임대인이 제공한 것인가요?',
-  options: [
-    { value: 'landlord_builtin', label: '임대인 제공(빌트인)' },
-    { value: 'landlord_option', label: '임대인 제공(옵션)' },
-    { value: 'tenant_purchased', label: '내가 직접 구매' },
-  ],
-};
-
-const PURCHASE_AGE_QUESTION: ApplianceQuestion = {
-  id: 'purchase_age',
-  text: '구매하신 지 얼마나 됐는지 아시나요?',
-  options: [
-    { value: 'within_2y', label: '2년 이내' },
-    { value: 'from_2y_to_10y', label: '2~10년' },
-    { value: 'over_10y', label: '10년 이상' },
-    { value: 'unknown', label: '모름' },
-  ],
-};
-
-const OWNERSHIPS: ApplianceOwnership[] = ['landlord_builtin', 'landlord_option', 'tenant_purchased'];
-const PURCHASE_AGES: PurchaseAge[] = ['within_2y', 'from_2y_to_10y', 'over_10y', 'unknown'];
-
-export interface ApplianceJudgement {
-  liability: Liability;
-  basis: string;
-  notice: string;
-  warning: string | null;
-  confidence: number;
-  blockVendorMatch: boolean;
-  recommendedPath: RecommendedPath;
-}
-
-// 소유 관계 + 사용 연차 → 부담 주체. 순수 함수라 self-check에서 표로 검증한다.
-export function judgeAppliance(
-  ownership: ApplianceOwnership,
-  purchaseAge: PurchaseAge | undefined
-): ApplianceJudgement {
-  // case A — 임차인이 직접 산 가전. 보증기간을 물을 필요가 없다(임대인과 무관).
-  if (ownership === 'tenant_purchased') {
-    return {
-      liability: 'tenant',
-      basis: '임차인이 직접 구매한 가전으로 임대차 목적물에 포함되지 않습니다.',
-      notice: '임차인 소유 가전이라 수리비는 임차인 부담입니다. 제조사 A/S 또는 사설 수리업체를 이용하세요.',
-      warning: null,
-      confidence: 0.9,
-      blockVendorMatch: false,
-      recommendedPath: 'manufacturer_as',
-    };
-  }
-
-  // case B — 임대인 제공 + 보증기간 내. 빌트인/옵션 구분 없이 제조사가 먼저다.
-  if (purchaseAge === 'within_2y') {
-    return {
-      liability: 'manufacturer_warranty',
-      basis: '구매 2년 이내로 제조사 보증기간(통상 2년) 내일 가능성이 높습니다.',
-      notice: '제조사 보증기간 내일 가능성이 높아 무상 수리 대상입니다. 제조사 A/S를 먼저 접수하세요.',
-      warning:
-        '사설 수리업체를 먼저 부르면 유상 수리가 되고, 임의 분해로 남은 보증까지 사라질 수 있습니다.',
-      confidence: 0.85,
-      blockVendorMatch: true,
-      recommendedPath: 'manufacturer_as',
-    };
-  }
-
-  // 연차를 모르면 보증 여부를 단정할 수 없다. 아래 판정은 그대로 두되 확신도를 낮추고
-  // 보증기간 확인을 함께 안내한다.
-  const unsure = purchaseAge === 'unknown' || purchaseAge === undefined;
-  const unsureNote = unsure
-    ? ' 구매 시점이 확인되면 보증기간 내 무상 수리가 가능할 수 있으니 함께 확인해 보세요.'
-    : '';
-
-  // case C — 빌트인 + 보증 만료. 기본 설비라 임대인이 사용·수익 상태를 유지할 의무가 있다.
-  if (ownership === 'landlord_builtin') {
-    return {
-      liability: 'landlord',
-      basis: '빌트인 가전은 임대차 목적물의 기본 설비에 해당합니다. (민법 제623조 임대인의 수선의무)',
-      notice: '기본 설비에 해당해 임대인 부담으로 수리하는 것이 원칙입니다.' + unsureNote,
-      warning: null,
-      confidence: unsure ? 0.6 : 0.85,
-      blockVendorMatch: false,
-      recommendedPath: 'vendor_match',
-    };
-  }
-
-  // case D — 옵션 + 보증 만료. 기본 설비로 보기 어려워 계약 특약에 따라 갈린다.
-  return {
-    liability: 'negotiable',
-    basis: '옵션 가전은 기본 설비로 단정하기 어려워 계약서 특약에 따라 부담 주체가 달라집니다.',
-    notice: '계약서 특약에 따라 달라질 수 있습니다. 임대인과 확인이 필요합니다.' + unsureNote,
-    warning: null,
-    confidence: unsure ? 0.4 : 0.5,
-    blockVendorMatch: false,
-    recommendedPath: 'vendor_match',
-  };
-}
-
-// 아직 답을 받지 못한 질문을 순서대로 하나씩 돌려준다.
-// Q2는 '내가 직접 구매'가 아닐 때만 묻는다 — 임차인 소유면 보증기간과 무관하게 임차인 부담이다.
-export function nextApplianceQuestions(
-  ownership: ApplianceOwnership | undefined,
-  purchaseAge: PurchaseAge | undefined
-): ApplianceQuestion[] {
-  if (!ownership) return [OWNERSHIP_QUESTION];
-  if (ownership !== 'tenant_purchased' && !purchaseAge) return [PURCHASE_AGE_QUESTION];
-  return [];
-}
+const APPLIANCE_WARNING =
+  '사설 수리업체를 먼저 부르면 유상 수리가 되고, 임의 분해로 남은 보증까지 사라질 수 있습니다. 제조사 A/S를 먼저 확인하세요.';
 
 // 사진/설명 기반 AI 하자 분석.
 //
@@ -430,24 +327,11 @@ export async function analyzeReport(req: Request, res: Response) {
     });
   }
 
-  const { photo_urls, photo_url, description, answers } = req.body as {
+  const { photo_urls, photo_url, description } = req.body as {
     photo_urls?: unknown;
     photo_url?: string;
     description?: string;
-    // 가전 보충 질문의 답. 프론트가 모아서 같은 엔드포인트로 다시 보낸다.
-    // 대화 세션을 서버에 두지 않으려는 것 — analyze는 저장하지 않는 순수 분류다.
-    answers?: { ownership?: string; purchase_age?: string };
   };
-
-  const ownership = answers?.ownership as ApplianceOwnership | undefined;
-  const purchaseAge = answers?.purchase_age as PurchaseAge | undefined;
-
-  if (ownership !== undefined && !OWNERSHIPS.includes(ownership)) {
-    return res.status(400).json({ error: `answers.ownership은 ${OWNERSHIPS.join('|')} 중 하나여야 합니다.` });
-  }
-  if (purchaseAge !== undefined && !PURCHASE_AGES.includes(purchaseAge)) {
-    return res.status(400).json({ error: `answers.purchase_age는 ${PURCHASE_AGES.join('|')} 중 하나여야 합니다.` });
-  }
 
   // photo_urls(배열)를 우선 쓰고, 예전 방식인 photo_url 단건도 받아 준다.
   const urls = Array.isArray(photo_urls)
@@ -524,32 +408,15 @@ export async function analyzeReport(req: Request, res: Response) {
     return res.json({ ...base, appliance: null });
   }
 
-  const questions = nextApplianceQuestions(ownership, purchaseAge);
-
-  // 아직 물어볼 게 남았으면 판정하지 않는다. 부담 주체를 추측으로 채우지 않기 위해서다.
-  if (questions.length > 0) {
-    return res.json({
-      ...base,
-      appliance: { applianceType, questions, liability: null, confidence: null },
-    });
-  }
-
-  const judged = judgeAppliance(ownership!, purchaseAge);
-
+  // 가전이면 LLM이 무엇을 골랐든 제조사 A/S로 덮어쓴다. LLM은 "이게 어떤 가전인가"
+  // (사실 추출)까지만 하고, 경로는 코드가 정한다 — 확률적 출력에 맡길 판단이 아니다.
   return res.json({
     ...base,
-    // 룰이 정한 경로가 LLM 추측보다 우선한다. 보증기간 내인데 업체 매칭으로
-    // 흘려보내면 무상 수리 기회를 잃는다.
-    recommended_path: judged.recommendedPath,
+    recommended_path: 'manufacturer_as',
     appliance: {
       applianceType,
-      questions: [],
-      liability: judged.liability,
-      basis: judged.basis,
-      notice: judged.notice,
-      warning: judged.warning,
-      confidence: judged.confidence,
-      blockVendorMatch: judged.blockVendorMatch,
+      notice: APPLIANCE_NOTICE,
+      warning: APPLIANCE_WARNING,
     },
   });
 }
