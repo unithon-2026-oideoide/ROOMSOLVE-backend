@@ -66,7 +66,9 @@ router.post('/schedule', asyncHandler(createSchedule));
  *   get:
  *     summary: 방문 일정 목록 조회 (리포트별 또는 기사별)
  *     description: >
- *       scheduled_at 오름차순. 각 항목에 담당 technician 정보(id, name, phone)가 조인되어 포함됨.
+ *       scheduled_at 오름차순. 각 항목에 담당 technician 정보(id, name, phone)와
+ *       신고 내용 report(id, category, severity, description, photo_url, status, available_times)가
+ *       조인되어 포함됨 — 기사 홈의 "배정된 작업" 카드를 이 응답 하나로 그릴 수 있다.
  *       reportId 또는 technicianId 중 최소 하나가 필요하며, 둘 다 주면 AND로 걸린다.
  *       기사 홈의 배정 작업 목록은 technicianId로 조회한다.
  *     tags: [Repair]
@@ -111,6 +113,8 @@ router.post('/schedule', asyncHandler(createSchedule));
  *                               phone:
  *                                 type: string
  *                                 nullable: true
+ *                           report:
+ *                             $ref: '#/components/schemas/Report'
  *       400:
  *         description: reportId / technicianId 둘 다 누락
  *         content:

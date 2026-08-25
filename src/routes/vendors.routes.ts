@@ -68,12 +68,21 @@ router.post('/match', asyncHandler(matchVendors));
  *     tags: [Vendors]
  *     parameters:
  *       - in: query
- *         name: vendorId
- *         required: true
+ *         name: technicianId
+ *         required: false
  *         schema:
  *           type: string
  *           format: uuid
- *         description: 업체 id (technician 가입 시 응답의 vendor.id)
+ *         description: |
+ *           로그인한 수리기사의 users.id. 프론트는 보통 이 값만 들고 있으므로 이쪽을 쓴다.
+ *           db/007의 vendors.user_id로 업체를 찾아 준다.
+ *       - in: query
+ *         name: vendorId
+ *         required: false
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: 업체 id로 직접 조회할 때. technicianId와 둘 중 하나는 필수.
  *     responses:
  *       200:
  *         description: 조회 성공
@@ -82,6 +91,15 @@ router.post('/match', asyncHandler(matchVendors));
  *             schema:
  *               type: object
  *               properties:
+ *                 vendor:
+ *                   description: 조회한 업체 정보. 이 vendor.id를 POST /api/quotes의 vendor_id로 쓴다.
+ *                   type: object
+ *                   properties:
+ *                     id: { type: string, format: uuid }
+ *                     name: { type: string }
+ *                     categories: { type: array, items: { $ref: '#/components/schemas/Category' } }
+ *                     phone: { type: string, nullable: true }
+ *                     rating: { type: number }
  *                 requests:
  *                   type: array
  *                   items:
@@ -99,14 +117,17 @@ router.post('/match', asyncHandler(matchVendors));
  *                         example: '평일 오후, 주말 오전'
  *                       status: { type: string }
  *                       created_at: { type: string, format: date-time }
+ *                       alreadyQuoted:
+ *                         type: boolean
+ *                         description: 이 업체가 이미 견적을 낸 신고인지. true면 프론트에서 "견적 제출됨"으로 표시.
  *       400:
- *         description: vendorId 누락
+ *         description: technicianId / vendorId 둘 다 누락
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *       404:
- *         description: 업체를 찾을 수 없음
+ *         description: 업체를 찾을 수 없음 (technician 계정에 연결된 업체 정보가 없는 경우 포함)
  *         content:
  *           application/json:
  *             schema:
