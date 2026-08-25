@@ -222,6 +222,56 @@ async function fetchImagePart(url: string) {
   return { inlineData: { mimeType, data: buffer.toString('base64') } };
 }
 
+// 예외 메시지에 담긴 Gemini 상태 문자열을 꺼낸다. 오류가 JSON 문자열로 오기 때문이다.
+function geminiStatus(err: unknown): string | undefined {
+  return /"status"\s*:\s*"([A-Z_]+)"/.exec(err instanceof Error ? err.message : '')?.[1];
+}
+
+// 기본 모델이 붐비거나(UNAVAILABLE) 하루 할당량을 다 썼을 때(RESOURCE_EXHAUSTED)
+// 예비 모델로 한 번 더 시도한다. 무료 티어 할당량은 모델당 하루 20회로 따로 잡히므로,
+// 이 전환만으로 하루에 쓸 수 있는 횟수가 두 배가 된다.
+//
+// 인증 오류나 잘못된 요청은 재시도하지 않는다 — 같은 실패를 두 번 기다릴 뿐이다.
+const RETRYABLE_ON_FALLBACK = ['UNAVAILABLE', 'DEADLINE_EXCEEDED', 'RESOURCE_EXHAUSTED'];
+
+async function generateWithFallback(
+  gemini: NonNullable<Awaited<ReturnType<typeof getGemini>>>,
+  request: Record<string, unknown>,
+): Promise<string | undefined> {
+  try {
+    return (await gemini.models.generateContent({ model: GEMINI_MODEL, ...request } as never)).text;
+  } catch (err) {
+    const status = geminiStatus(err);
+    if (!status || !RETRYABLE_ON_FALLBACK.includes(status)) throw err;
+    return (await gemini.models.generateContent({ model: GEMINI_FALLBACK_MODEL, ...request } as never)).text;
+  }
+}
+
+// Gemini 오류를 우리 상태 코드로 옮긴다. 그대로 내보내면 사용자에게 원문 JSON이 노출된다.
+function respondGeminiError(res: Response, err: unknown) {
+  const raw = err instanceof Error ? err.message : '';
+  switch (geminiStatus(err)) {
+    case 'UNAVAILABLE':
+    case 'DEADLINE_EXCEEDED':
+      return res.status(503).json({ error: 'AI 서버가 혼잡합니다. 잠시 후 다시 시도해 주세요.' });
+    // 예비 모델까지 할당량을 다 썼다는 뜻이다. 무료 티어는 모델당 하루 20회라
+    // 시연 규모로 쓰려면 결제를 켜야 한다 — 메시지에 그 힌트를 남긴다.
+    case 'RESOURCE_EXHAUSTED':
+      console.error('[gemini] 할당량 소진 (무료 티어는 모델당 하루 20회):', raw);
+      return res.status(429).json({ error: 'AI 호출 한도를 모두 사용했습니다. 잠시 후 다시 시도해 주세요.' });
+    case 'PERMISSION_DENIED':
+    case 'UNAUTHENTICATED':
+      return res.status(503).json({ error: 'GEMINI_API_KEY가 올바르지 않습니다.' });
+    // INVALID_ARGUMENT는 키가 아니라 우리가 보낸 요청이 잘못됐다는 뜻이다.
+    // 키 문제로 표시하면 엉뚱한 곳을 찾게 되므로 원문을 그대로 남긴다.
+    case 'INVALID_ARGUMENT':
+      console.error('[gemini] 잘못된 요청:', raw);
+      return res.status(502).json({ error: `AI 요청이 거부되었습니다: ${raw}` });
+    default:
+      return res.status(502).json({ error: `AI 호출 실패: ${raw || '알 수 없는 오류'}` });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 가전 하자 판정
 //
@@ -419,37 +469,11 @@ export async function analyzeReport(req: Request, res: Response) {
     },
   };
 
-  // 예외 메시지에 담긴 Gemini 상태 문자열을 꺼낸다. 오류가 JSON 문자열로 오기 때문이다.
-  const geminiStatus = (err: unknown) =>
-    /"status"\s*:\s*"([A-Z_]+)"/.exec(err instanceof Error ? err.message : '')?.[1];
-
   let rawText: string | undefined;
   try {
-    try {
-      rawText = (await gemini.models.generateContent({ model: GEMINI_MODEL, ...request })).text;
-    } catch (err) {
-      // 기본 모델이 붐빌 때만 더 가벼운 모델로 한 번 더 시도한다. 인증 오류나 잘못된
-      // 요청까지 재시도하면 같은 실패를 두 번 기다리게 될 뿐이다.
-      const status = geminiStatus(err);
-      if (status !== 'UNAVAILABLE' && status !== 'DEADLINE_EXCEEDED') throw err;
-      rawText = (await gemini.models.generateContent({ model: GEMINI_FALLBACK_MODEL, ...request })).text;
-    }
+    rawText = await generateWithFallback(gemini, request);
   } catch (err) {
-    // 그대로 내보내면 사용자에게 Gemini 원문 JSON이 노출되므로,
-    // 아는 상태만 우리 상태 코드로 옮겨 준다.
-    const raw = err instanceof Error ? err.message : '';
-    const status = geminiStatus(err);
-
-    if (status === 'UNAVAILABLE' || status === 'DEADLINE_EXCEEDED') {
-      return res.status(503).json({ error: 'AI 분석 서버가 혼잡합니다. 잠시 후 다시 시도해 주세요.' });
-    }
-    if (status === 'RESOURCE_EXHAUSTED') {
-      return res.status(429).json({ error: 'AI 호출 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.' });
-    }
-    if (status === 'INVALID_ARGUMENT' || status === 'PERMISSION_DENIED' || status === 'UNAUTHENTICATED') {
-      return res.status(503).json({ error: 'GEMINI_API_KEY가 올바르지 않습니다.' });
-    }
-    return res.status(502).json({ error: `AI 분석 실패: ${raw || '알 수 없는 오류'}` });
+    return respondGeminiError(res, err);
   }
 
   if (!rawText) {
@@ -506,6 +530,154 @@ export async function analyzeReport(req: Request, res: Response) {
       confidence: judged.confidence,
       blockVendorMatch: judged.blockVendorMatch,
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 자가수리 챗봇
+//
+// 세입자 플로우는 직렬이다: 사진 → AI 진단 → 자가수리 상담 → (막히면) 업체 추천.
+// 진단 결과가 무엇이든 일단 이 상담을 거치되, 상담이 의미 없거나 위험한 두 경우는
+// AI를 부르지 않고 코드에서 바로 다음 단계로 넘긴다.
+// ---------------------------------------------------------------------------
+
+const ChatReplySchema = z.object({
+  reply: z.string(),
+  escalate: z.boolean(),
+});
+
+const CHAT_RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    reply: { type: 'string', description: '세입자에게 보여줄 답변. 한국어.' },
+    escalate: {
+      type: 'boolean',
+      description: '자가수리로는 해결이 어려워 전문 업체가 필요하면 true',
+    },
+  },
+  required: ['reply', 'escalate'],
+};
+
+const MAX_CHAT_TURNS = 20;
+
+function buildChatSystemPrompt(c: {
+  category: string;
+  severity: string;
+  self_fix_guide?: string | null;
+}): string {
+  return `당신은 한국 세입자를 위한 자가수리 도우미입니다. 세입자가 스스로 고쳐볼 수 있게 돕되, 무리하지 않도록 판단해 주세요.
+
+지금 상담 중인 하자:
+- 유형: ${c.category}
+- 긴급도: ${c.severity}${c.self_fix_guide ? `\n- 진단 단계에서 제안된 자가조치: ${c.self_fix_guide}` : ''}
+
+역할:
+1. 대화가 비어 있는 첫 턴에는 이 하자의 자가수리 방법을 번호 목록으로 안내하세요. 다이소·철물점에서 구할 수 있는 용품 기준으로 설명하세요.
+2. 세입자가 진행 상황을 알려주면 다음 단계를 안내하거나 막힌 부분을 풀어 주세요.
+3. 아래에 해당하면 자가수리를 말리고 전문 업체를 권하면서 escalate를 true로 두세요.
+   - 전기·가스 관련 위험이 있는 경우
+   - 벽 내부 배관 누수나 구조적 손상인 경우
+   - 세입자가 시도했지만 실패했거나 어렵다고 말한 경우
+   - 세입자가 직접 업체를 불러 달라고 요청한 경우
+4. 그 밖에는 escalate를 false로 두세요.
+
+reply는 한국어로 3~6문장. escalate가 true일 때는 왜 업체가 필요한지 짧게 설명하세요.`;
+}
+
+// 자가수리 상담. 무상태 — 대화 기록은 클라이언트가 들고 있다가 매번 보낸다.
+// DB는 건드리지 않는다. 상태 변경은 리포트 API가 맡는다.
+export async function chatSelfRepair(req: Request, res: Response) {
+  const { context, messages } = req.body as {
+    context?: { category?: string; severity?: string; recommended_path?: string; self_fix_guide?: string | null };
+    messages?: unknown;
+  };
+
+  if (!context || typeof context !== 'object') {
+    return res.status(400).json({ error: 'context(analyze 결과)가 필요합니다.' });
+  }
+  const { category, severity, recommended_path, self_fix_guide } = context;
+  if (!category || !CATEGORIES.includes(category as RepairCategory)) {
+    return res.status(400).json({ error: `context.category는 ${CATEGORIES.join('|')} 중 하나여야 합니다.` });
+  }
+  if (!severity || !SEVERITIES.includes(severity as (typeof SEVERITIES)[number])) {
+    return res.status(400).json({ error: `context.severity는 ${SEVERITIES.join('|')} 중 하나여야 합니다.` });
+  }
+
+  // 안전 규칙. 모델 판단에 맡기지 않고 여기서 끊는다 — 감전·가스처럼 즉시 조치가
+  // 필요한 상황에서 세입자를 챗봇과 대화하게 두면 안 된다.
+  if (severity === 'emergency') {
+    return res.json({
+      reply: '지금은 직접 손대지 마세요. 안전 위험이 있어 즉시 전문가의 조치가 필요한 상태입니다. '
+        + '가능하면 해당 구역의 전기 차단기나 밸브를 잠그고 자리를 피한 뒤, 바로 수리 요청을 진행해 주세요.',
+      escalate: true,
+      escalate_to: 'vendor_match',
+    });
+  }
+
+  // 제조사 보증·AS 대상이면 자가수리를 권할 자리가 아니다. 보증이 깨질 수도 있다.
+  if (recommended_path === 'manufacturer_as') {
+    return res.json({
+      reply: '이 하자는 제조사 A/S 대상으로 보입니다. 직접 분해하면 보증을 받지 못할 수 있으니 '
+        + '제조사 서비스센터에 먼저 문의해 주세요. 아래에서 연락처를 확인할 수 있습니다.',
+      escalate: true,
+      escalate_to: 'manufacturer_as',
+    });
+  }
+
+  const gemini = await getGemini();
+  if (!gemini) {
+    return res.status(503).json({
+      error: 'GEMINI_API_KEY가 설정되지 않아 자가수리 상담을 사용할 수 없습니다. .env를 확인하세요.',
+    });
+  }
+
+  // 대화가 길어질수록 매 턴 비용이 늘어난다. 최근 것만 보낸다.
+  const history = (Array.isArray(messages) ? messages : [])
+    .filter((m): m is { role: 'user' | 'assistant'; content: string } =>
+      !!m && typeof m === 'object'
+      && ((m as any).role === 'user' || (m as any).role === 'assistant')
+      && typeof (m as any).content === 'string' && !!(m as any).content)
+    .slice(-MAX_CHAT_TURNS)
+    // Gemini는 assistant 대신 model을 쓴다.
+    .map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
+
+  // Gemini는 첫 항목이 user여야 한다. 첫 턴이면 상담을 여는 말을 대신 넣어 준다.
+  if (history.length === 0 || history[0].role !== 'user') {
+    history.unshift({
+      role: 'user',
+      parts: [{ text: '이 하자를 직접 고쳐보고 싶어요. 자가수리 방법을 알려주세요.' }],
+    });
+  }
+
+  let rawText: string | undefined;
+  try {
+    rawText = await generateWithFallback(gemini, {
+      contents: history,
+      config: {
+        systemInstruction: buildChatSystemPrompt({ category, severity, self_fix_guide }),
+        responseMimeType: 'application/json',
+        responseJsonSchema: CHAT_RESPONSE_SCHEMA,
+      },
+    });
+  } catch (err) {
+    return respondGeminiError(res, err);
+  }
+
+  if (!rawText) {
+    return res.status(502).json({ error: 'AI가 빈 응답을 반환했습니다.' });
+  }
+
+  const parsed = ChatReplySchema.safeParse(
+    (() => { try { return JSON.parse(rawText); } catch { return null; } })(),
+  );
+  if (!parsed.success) {
+    return res.status(502).json({ error: 'AI 응답을 상담 결과로 해석하지 못했습니다.' });
+  }
+
+  return res.json({
+    reply: parsed.data.reply,
+    escalate: parsed.data.escalate,
+    escalate_to: parsed.data.escalate ? 'vendor_match' : null,
   });
 }
 
