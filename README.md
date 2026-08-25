@@ -93,12 +93,27 @@ reports 생성 시 landlord_id 필수 — 프론트에서 세입자당 landlord_
 - `POST /api/quotes`
 - `GET /api/quotes`
 - `PATCH /api/quotes/:id/status`
-- `repair_schedule` / `repair_status_timeline` 관련 API는 필요에 따라
-  `src/controllers/repair.controller.ts`에 추가하고, 라우트가 정해지면
-  `src/routes/repair.routes.ts`를 새로 만들어 `app.ts`에 연결하면 됨.
+- `POST /api/repair/schedule` — 방문 일정 등록 (타임라인에 `scheduled` 자동 기록)
+- `GET /api/repair/schedule?reportId=` — 일정 조회
+- `PATCH /api/repair/schedule/:id/confirm` — 일정 확정 (타임라인에 `confirmed` 기록)
+- `POST /api/repair/status` — 수리 상태 변경 (타임라인에 이력 추가)
+- `GET /api/repair/timeline?reportId=` — 이력 조회 + `currentStatus`
 
-파일: `src/routes/vendors.routes.ts`, `src/routes/quotes.routes.ts`,
-`src/controllers/vendors.controller.ts`, `src/controllers/quotes.controller.ts`
+파일: `src/routes/{vendors,quotes,repair}.routes.ts`,
+`src/controllers/{vendors,quotes,repair}.controller.ts`
+
+DB: 테이블 DDL은 `supabase/schema.sql`에 이미 있음. B가 추가로 돌릴 것:
+
+- `db/001_vendor_matching.sql` — vendors 데모 시딩 15건 (재실행 안전)
+- `db/002_vendors_rating_active.sql` — **팀 공유 후 실행.** `vendors.rating` /
+  `vendors.is_active` 컬럼 추가. `POST /api/vendors/match`가 `is_active`로
+  필터하므로 이걸 돌려야 매칭 API가 동작함.
+
+`quotes.status`는 DB 기본값이 `pending`이지만 B 범위에서는 `recommended` /
+`selected` 두 값만 쓰며, `createQuote`가 `recommended`를 명시해서 넣음.
+`quotes.is_outlier` 컬럼은 사용하지 않음 — median은 조회 시점에 계산함.
+
+median / 이상치 판정 검증: `npx ts-node src/controllers/quotes.controller.check.ts`
 
 ---
 
