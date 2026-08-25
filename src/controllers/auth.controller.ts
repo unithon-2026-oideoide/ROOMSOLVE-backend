@@ -1,8 +1,6 @@
 import { Request, Response } from 'express';
 import { supabase, supabaseAdmin } from '../config/supabase';
-import { UserRole } from '../types';
-
-const VALID_ROLES: UserRole[] = ['tenant', 'landlord', 'technician'];
+import { UserRole, USER_ROLES } from '../types';
 
 export async function signup(req: Request, res: Response) {
   const { email, password, name, role, phone } = req.body as {
@@ -16,8 +14,8 @@ export async function signup(req: Request, res: Response) {
   if (!email || !password || !name || !role) {
     return res.status(400).json({ error: 'email, password, name, role는 필수입니다.' });
   }
-  if (!VALID_ROLES.includes(role)) {
-    return res.status(400).json({ error: `role은 ${VALID_ROLES.join('|')} 중 하나여야 합니다.` });
+  if (!USER_ROLES.includes(role)) {
+    return res.status(400).json({ error: `role은 ${USER_ROLES.join('|')} 중 하나여야 합니다.` });
   }
 
   // 1) Supabase Auth에 계정 생성
