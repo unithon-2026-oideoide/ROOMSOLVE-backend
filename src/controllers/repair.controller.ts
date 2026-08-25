@@ -14,16 +14,6 @@ import { supabaseAdmin } from '../config/supabase';
 // 수리 완료 상태값. 이 상태로 바꿀 때만 완료 사진(photo_url)을 필수로 받는다.
 export const COMPLETION_STATUS = 'done';
 
-// 타임라인 상태 중 reports.status 로도 올려야 하는 것들.
-// 임대인/세입자 목록 화면은 reports.status 하나로 그룹을 나누는데(승인 대기 / 수리 대기 /
-// 수리 진행 중 / 완료), 타임라인만 쌓으면 목록에서는 계속 'approved'로 보인다.
-// scheduled / confirmed 는 올리지 않는다 — 일정이 잡히는 중에도 '수리 대기'가 맞다.
-// 값은 타임라인과 같은 단어를 그대로 쓴다(새 어휘를 만들지 않는다).
-const REPORT_STATUS_FROM_TIMELINE: Record<string, string> = {
-  in_progress: 'in_progress',
-  [COMPLETION_STATUS]: COMPLETION_STATUS,
-};
-
 async function addTimelineEntry(reportId: string, status: string) {
   return supabaseAdmin.from('repair_status_timeline').insert({ report_id: reportId, status });
 }
@@ -72,8 +62,11 @@ export async function listSchedules(req: Request, res: Response) {
   let query = supabaseAdmin
     .from('repair_schedule')
     // 기사 홈의 "배정된 작업" 목록이 카드에 뿌릴 신고 내용(카테고리/설명/사진)을 같이 내려 준다.
-    // 이게 없으면 프론트가 일정 건수만큼 GET /api/reports/:id를 다시 불러야 한다.
-    .select('*, technician:users(id, name, phone), report:reports(id, category, severity, description, photo_url, status, available_times)')
+    // 이게 없으면 프론트가 일정 건수만큼 GET /api/reports/:id를 다시 불러야 하는데,
+    // 그 엔드포인트는 tenant_id로 스코프돼 있어 기사가 부르면 항상 404다 — 그래서
+    // photo_urls/created_at까지 여기서 전부 내려줘서 프론트가 그 호출을 할 필요가
+    // 아예 없게 한다(technician_job_loader.dart).
+    .select('*, technician:users(id, name, phone), report:reports(id, category, severity, description, photo_url, photo_urls, status, available_times, created_at)')
     .order('scheduled_at', { ascending: true });
 
   if (reportId) query = query.eq('report_id', reportId);
@@ -127,36 +120,16 @@ export async function changeRepairStatus(req: Request, res: Response) {
     return res.status(400).json({ error: `status가 '${COMPLETION_STATUS}'이면 완료 사진 photo_url이 필수입니다.` });
   }
 
-  // 완료가 아닌 상태에 사진이 붙어 오면 버린다 — 타임라인에서 완료 사진의 의미가 흐려진다.
-  // photo_url 키를 아예 넣지 않는 것이 중요하다: db/010을 아직 실행하지 않은 DB에서는
-  // 컬럼이 없어서, null이라도 키가 있으면 insert 전체가 실패한다(완료가 아닌 상태까지 500).
-  const row: Record<string, unknown> = { report_id, status };
-  if (status === COMPLETION_STATUS) {
-    row.photo_url = photo_url;
-  }
-
   const { data, error } = await supabaseAdmin
     .from('repair_status_timeline')
-    .insert(row)
+    // 완료가 아닌 상태에 사진이 붙어 오면 버린다 — 타임라인에서 완료 사진의 의미가 흐려진다.
+    .insert({ report_id, status, photo_url: status === COMPLETION_STATUS ? photo_url : null })
     .select()
     .single();
 
   if (error) {
     return res.status(500).json({ error: error.message });
   }
-
-  const reportStatus = REPORT_STATUS_FROM_TIMELINE[status];
-  if (reportStatus) {
-    const { error: reportError } = await supabaseAdmin
-      .from('reports')
-      .update({ status: reportStatus })
-      .eq('id', report_id);
-    if (reportError) {
-      // 타임라인 기록은 이미 남았으므로 실패로 되돌리지 않는다. 로그만 남긴다.
-      console.warn(`[repair] report ${report_id} status를 ${reportStatus}로 올리지 못했습니다:`, reportError.message);
-    }
-  }
-
   return res.status(201).json({ entry: data });
 }
 

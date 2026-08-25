@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler';
+import { requireAuth } from '../middleware/auth';
 import {
   createSchedule,
   listSchedules,
@@ -9,6 +10,11 @@ import {
 } from '../controllers/repair.controller';
 
 const router = Router();
+
+// 로그인 필수. technician_id/report_id는 여전히 body/query로 받지만(컨트롤러의
+// NOTE 참고), 최소한 로그인한 사용자만 방문 일정을 만들거나 수리 상태를
+// 바꿀 수 있게 막는다 — 이전에는 이 라우터에 인증이 전혀 없었다.
+router.use(requireAuth);
 
 /**
  * @swagger
@@ -67,8 +73,10 @@ router.post('/schedule', asyncHandler(createSchedule));
  *     summary: 방문 일정 목록 조회 (리포트별 또는 기사별)
  *     description: >
  *       scheduled_at 오름차순. 각 항목에 담당 technician 정보(id, name, phone)와
- *       신고 내용 report(id, category, severity, description, photo_url, status, available_times)가
- *       조인되어 포함됨 — 기사 홈의 "배정된 작업" 카드를 이 응답 하나로 그릴 수 있다.
+ *       신고 내용 report(id, category, severity, description, photo_url, photo_urls,
+ *       status, available_times, created_at)가 조인되어 포함됨 — 기사 홈의 "배정된
+ *       작업" 카드를 이 응답 하나로 그릴 수 있다(GET /api/reports/{id}를 따로 부를
+ *       필요가 없다 — 그 엔드포인트는 tenant_id로 스코프돼 있어 기사가 부르면 항상 404다).
  *       reportId 또는 technicianId 중 최소 하나가 필요하며, 둘 다 주면 AND로 걸린다.
  *       기사 홈의 배정 작업 목록은 technicianId로 조회한다.
  *     tags: [Repair]
@@ -178,11 +186,6 @@ router.patch('/schedule/:id/confirm', asyncHandler(confirmSchedule));
  *       repair_status_timeline에 이력 한 줄을 추가함. status는 DB CHECK 제약이 없는 자유 문자열이며,
  *       scheduled/confirmed/in_progress/done 정도를 상정.
  *       **status가 'done'(수리 완료)이면 완료 사진 photo_url이 필수**다. 그 외 상태에서 보낸 photo_url은 무시된다.
- *
- *       status가 in_progress / done이면 reports.status도 같은 값으로 올린다 — 임대인·세입자
- *       목록 화면이 reports.status 하나로 그룹을 나누기 때문. scheduled / confirmed는 올리지
- *       않는다(일정이 잡히는 중에도 '수리 대기'가 맞다).
- *       reports.status 흐름: pending(승인 대기) → approved(수리 대기) → in_progress(수리 진행 중) → done(완료)
  *     tags: [Repair]
  *     requestBody:
  *       required: true

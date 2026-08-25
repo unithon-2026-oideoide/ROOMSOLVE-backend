@@ -242,6 +242,9 @@ async function autoCreateSchedule(
 //   2. 선택된 견적의 proposed_visit_at으로 repair_schedule을 자동 생성하고(확정 상태),
 //      repair_status_timeline에도 'confirmed'를 기록한다. autoCreateSchedule() 참고 —
 //      업체 계정이 없거나 방문 시간이 없으면 조용히 건너뛴다(에러 아님).
+//   3. reports.status를 approved로 올린다. 바뀐 플로우에서는 임대인이 견적을 고르는
+//      행위가 곧 승인이다. 이걸 안 하면 업체는 정해졌는데 신고는 pending으로 남아,
+//      임대인 화면이 아직 처리 안 된 건으로 계속 보여준다.
 //
 // db/009_quote_visit_and_reject.sql로 quotes.status CHECK에 rejected가 추가돼야
 // 아래 update가 통과한다.
@@ -253,14 +256,31 @@ export async function updateQuoteStatus(req: Request, res: Response) {
     return res.status(400).json({ error: `status는 ${VALID_QUOTE_STATUSES.join('|')} 중 하나여야 합니다.` });
   }
 
-  const { data: target } = await supabaseAdmin
+  // maybeSingle()을 쓰고 error/target을 따로 확인한다. single()은 0건일 때도
+  // error를 채우는데, 예전 코드는 그 error를 버리고 target만 봐서 "견적 없음"과
+  // "조회 자체가 실패함"(네트워크/권한 등 진짜 500 상황)을 구분하지 못하고
+  // 둘 다 404로 응답했다.
+  const { data: target, error: targetError } = await supabaseAdmin
     .from('quotes')
-    .select('id, report_id, vendor_id, proposed_visit_at')
+    .select('id, report_id, vendor_id, proposed_visit_at, status')
     .eq('id', id)
-    .single();
+    .maybeSingle();
 
+  if (targetError) {
+    return res.status(500).json({ error: targetError.message });
+  }
   if (!target) {
     return res.status(404).json({ error: '견적을 찾을 수 없습니다.' });
+  }
+
+  // 이미 selected인 견적을 다른 상태로 옮기는 요청은 막는다. selected가 되는
+  // 순간 repair_schedule이 자동 생성되고(confirmed) reports.status도 approved로
+  // 올라간다 — 여기서 조용히 다른 상태로 바꾸면 이미 만들어진 일정/승인 상태가
+  // 고아로 남아 서로 어긋난다. 되돌리려면 별도의 취소 플로우가 필요하다.
+  if (target.status === 'selected' && status !== 'selected') {
+    return res.status(409).json({
+      error: '이미 선택된 견적의 상태는 이 API로 바꿀 수 없습니다. 방문 일정이 이미 생성되어 있습니다.',
+    });
   }
 
   if (status === 'selected') {
@@ -274,6 +294,17 @@ export async function updateQuoteStatus(req: Request, res: Response) {
 
     if (rejectError) {
       return res.status(500).json({ error: rejectError.message });
+    }
+
+    // 견적 선택이 곧 승인이다. 예전 승인 버튼(PATCH /api/landlord/requests/:id/approve)과
+    // 달리 이 경로는 업체까지 확정되므로, 여기서 신고 상태를 함께 올려야 둘이 어긋나지 않는다.
+    const { error: reportError } = await supabaseAdmin
+      .from('reports')
+      .update({ status: 'approved' })
+      .eq('id', target.report_id);
+
+    if (reportError) {
+      return res.status(500).json({ error: reportError.message });
     }
   }
 
@@ -290,20 +321,6 @@ export async function updateQuoteStatus(req: Request, res: Response) {
 
   if (status !== 'selected') {
     return res.json({ quote: data });
-  }
-
-  // 임대인이 견적을 고른 것이 곧 승인이다 — 프론트가 PATCH /api/landlord/requests/:id/approve를
-  // 따로 부르지 않아도 신고가 '수리 대기'(approved)로 넘어가야 한다.
-  // status가 pending일 때만 올린다: 이미 rejected된 신고를 견적 선택으로 되살리거나,
-  // 수리가 시작된(in_progress/done) 신고를 approved로 되돌리면 안 된다.
-  const { error: reportError } = await supabaseAdmin
-    .from('reports')
-    .update({ status: 'approved' })
-    .eq('id', target.report_id)
-    .eq('status', 'pending');
-  if (reportError) {
-    // 견적 선택 자체는 이미 성공했으므로 실패로 되돌리지 않는다. 로그만 남긴다.
-    console.warn(`[quotes] report ${target.report_id} status를 approved로 올리지 못했습니다:`, reportError.message);
   }
 
   const { schedule, skippedReason } = await autoCreateSchedule(target.report_id, target.vendor_id, target.proposed_visit_at);

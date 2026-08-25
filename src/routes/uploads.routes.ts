@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { asyncHandler } from '../middleware/asyncHandler';
+import { requireAuth } from '../middleware/auth';
 import { uploadFile } from '../controllers/uploads.controller';
 
 const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -17,6 +18,11 @@ const upload = multer({
 });
 
 const router = Router();
+
+// 로그인 필수. 이전에는 인증이 없어서 누구나 스토리지 용량을 소모하며 파일을
+// 올릴 수 있었다(업로드된 파일 URL은 이후 신고 생성 등에 그대로 쓰이므로
+// 로그인한 사용자만 올리게 막는다).
+router.use(requireAuth);
 
 /**
  * @swagger

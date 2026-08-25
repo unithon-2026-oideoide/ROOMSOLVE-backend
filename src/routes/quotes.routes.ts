@@ -1,10 +1,15 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler';
+import { requireAuth } from '../middleware/auth';
 import { createQuote, listQuotes, updateQuoteStatus } from '../controllers/quotes.controller';
 
 // 견적 등록/조회/상태변경 (팀원B). 구현: src/controllers/quotes.controller.ts
 
 const router = Router();
+
+// 로그인 필수. 이전에는 이 라우터에 인증이 없어서, report_id/vendor_id만 알면
+// 누구나(로그인 없이) 견적을 등록하거나 다른 사람의 견적 상태를 바꿀 수 있었다.
+router.use(requireAuth);
 
 /**
  * @swagger
@@ -188,6 +193,12 @@ router.get('/', asyncHandler(listQuotes));
  *               $ref: '#/components/schemas/Error'
  *       404:
  *         description: 존재하지 않는 견적
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       409:
+ *         description: 이미 selected인 견적을 다른 상태로 바꾸려 함(방문 일정이 이미 생성되어 있음)
  *         content:
  *           application/json:
  *             schema:
