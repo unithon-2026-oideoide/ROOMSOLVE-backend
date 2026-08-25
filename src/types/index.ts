@@ -55,6 +55,20 @@ export interface ManufacturerAsInfo {
   as_url: string | null;
 }
 
+// 가전 종류. 교체 권장 판정(GET /api/quotes)의 신품 기준가 조회에만 쓴다.
+// reports.category 8종과는 별개 축이다 — 가전 하자 진단(팀원A 범위)에서
+// 하위 종류를 다루게 되면 그쪽 값과 맞출 것.
+export type ApplianceType = 'aircon' | 'boiler' | 'induction' | 'refrigerator' | 'washer';
+
+export interface ApplianceReferencePrice {
+  id: string;
+  appliance_type: ApplianceType;
+  grade: 'standard' | 'premium';
+  price: number;
+  note: string | null;
+  created_at: string;
+}
+
 export interface Vendor {
   id: string;
   name: string;

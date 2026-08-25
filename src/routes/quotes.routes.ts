@@ -71,6 +71,15 @@ router.post('/', asyncHandler(createQuote));
  *           type: string
  *           format: uuid
  *         description: 견적을 조회할 리포트 id
+ *       - in: query
+ *         name: applianceType
+ *         required: false
+ *         schema:
+ *           type: string
+ *           enum: [aircon, boiler, induction, refrigerator, washer]
+ *         description: >
+ *           가전 종류. 주면 동급 신품가와 비교해 수리/교체 권장(replacementAdvice)을 함께 낸다.
+ *           생략하면 replacementAdvice가 null이다.
  *     responses:
  *       200:
  *         description: 목록 조회 성공
@@ -87,6 +96,11 @@ router.post('/', asyncHandler(createQuote));
  *                   type: number
  *                   nullable: true
  *                   description: 해당 리포트 견적 price들의 중앙값 (견적이 없으면 null)
+ *                 replacementAdvice:
+ *                   nullable: true
+ *                   allOf:
+ *                     - $ref: '#/components/schemas/ReplacementAdvice'
+ *                   description: applianceType 미지정이거나 견적이 0건이면 null
  *       400:
  *         description: reportId 쿼리 파라미터 누락
  *         content:
