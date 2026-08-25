@@ -77,20 +77,36 @@ npm run dev          # http://localhost:3000/api-docs 에서 Swagger로 실제 �
 ## 테스트 데이터
 
 DB 스키마(컬럼·제약)는 전부 `supabase/schema.sql` 하나로 재현 가능하다.
-번호가 붙어 있던 마이그레이션 이력 파일들(예전 `db/001`~`db/010`)은 이제
-다 지워졌고, `db/seed_test_data.sql` 하나만 남아 있다 — 이건 마이그레이션이
-아니라 테스트용 행 데이터를 채우는 시드 스크립트라 몇 번을 다시 실행해도
-안전하다.
+번호가 붙어 있던 마이그레이션 이력 파일들(예전 `db/001`~`db/010`)과 SQL
+전용 시드 파일은 전부 지웠다 — 아래 테스트 계정은 전부 실제
+`POST /api/auth/signup`으로 만든 로그인 가능한 계정이라 SQL 시드가 필요
+없다(SQL로 `users`/`vendors`만 채우면 로그인이 안 돼서, 이번엔 전부
+signup API를 직접 태웠다).
 
-- 로그인 가능한 계정(임대인 "김임대", 수리업체 "새지마 종합설비" 등)은
-  먼저 `POST /api/auth/signup`으로 만들 것 — SQL로 직접 넣으면 로그인이
-  안 된다(auth.users는 GoTrue가 관리하는 테이블).
-- 그다음 `db/seed_test_data.sql`을 Supabase SQL Editor에서 실행하면
-  세입자 "최세입"·"심세입"(둘 다 김임대에 자동 연결)과 수리업체 8곳(카테고리 8종에
-  하나씩, 분야 안 겹침)이 채워진다.
-- 제조사 A/S(`manufacturer_as_info`), 가전 신품가(`appliance_reference_price`)
-  참고 데이터는 이번 정리에서 시딩 파일이 같이 지워졌다 — 그 기능을
-  테스트하려면 데이터를 새로 채워야 한다.
+임대인·세입자는 모두 비밀번호 `test1234!`.
+
+| 역할 | 이름 | 이메일 | 비고 |
+|---|---|---|---|
+| 임대인 | 김임대 | `kim.landlord@gmail.com` | 초대 코드는 로그인 후 `user.landlord_code`로 확인 |
+| 세입자 | 최세입 | `choi.tenant@gmail.com` | 김임대에 연결됨 |
+| 세입자 | 심세입 | `sim.tenant@gmail.com` | 김임대에 연결됨 |
+| 수리업체(plumbing) | 새지마 종합설비 | `saejima.vendor@gmail.com` | |
+| 수리업체(electrical) | 번쩍번쩍전기 | `bunjjuk.vendor@gmail.com` | |
+| 수리업체(heating) | 훈훈보일러 | `hunhun.vendor@gmail.com` | |
+| 수리업체(appliance) | 가전주치의 | `gajeon.vendor@gmail.com` | |
+| 수리업체(door_window) | 여닫이명장 | `yeodaji.vendor@gmail.com` | `is_active=false`로 설정해 둠(매칭 필터 테스트용) |
+| 수리업체(interior) | 공간연구소 | `gonggan.vendor@gmail.com` | |
+| 수리업체(pest) | 해충제로 | `haechung.vendor@gmail.com` | |
+| 수리업체(other) | 만능해결단 | `manneung.vendor@gmail.com` | |
+
+8개 수리업체는 카테고리가 서로 안 겹치게 하나씩만 맡고 있다(`POST
+/api/vendors/match`로 카테고리별 결과 확인 가능). 여닫이명장만 비활성이라
+door_window로 매칭하면 빈 배열이 나오는 게 정상 — `is_active` 필터가
+실제로 걸러내는지 확인하는 용도.
+
+제조사 A/S(`manufacturer_as_info`), 가전 신품가(`appliance_reference_price`)
+참고 데이터는 시딩 파일이 정리되면서 같이 지워졌다 — 그 기능을 테스트하려면
+데이터를 새로 채워야 한다.
 
 ## 프로젝트 구조
 
@@ -201,9 +217,9 @@ DB: 컬럼(`photo_urls` 등)은 `supabase/schema.sql`에 이미 반영돼 있음
 `src/controllers/{vendors,quotes,repair}.controller.ts`
 
 DB: 테이블 DDL(`vendors.rating`/`is_active` 포함)은 `supabase/schema.sql`에
-이미 있음. 데모 업체 시딩은 `db/seed_test_data.sql` 3부에서 처리함(8개
-카테고리에 업체 하나씩, 분야 안 겹침) — 예전 15개짜리 시딩 파일은 정리하면서
-지웠음.
+이미 있음. 데모 업체 8곳은 위 "테스트 데이터" 절 표에 있는 계정으로 실제
+`POST /api/auth/signup`을 태워서 만들었음(SQL 시딩 파일은 로그인이 안 돼서
+정리하면서 지웠음) — 카테고리 8종에 업체 하나씩, 분야 안 겹침.
 
 `quotes.status`는 DB 기본값이 `pending`이지만 B 범위에서는 `recommended` /
 `selected` / `rejected` 세 값만 쓰며, `createQuote`가 `recommended`를 명시해서 넣음.
