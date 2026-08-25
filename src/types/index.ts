@@ -92,19 +92,6 @@ export const APPLIANCE_TYPES: ApplianceType[] = [
   'washer',
 ];
 
-// 가전 보충 질문 Q1 — 소유 관계. 부담 주체 판정의 1차 분기다.
-export type ApplianceOwnership = 'landlord_builtin' | 'landlord_option' | 'tenant_purchased';
-
-// 가전 보충 질문 Q2 — 사용 연차. 제조사 보증기간(통상 2년) 안팎을 가른다.
-export type PurchaseAge = 'within_2y' | 'from_2y_to_10y' | 'over_10y' | 'unknown';
-
-// 수리비 부담 주체.
-// - tenant               : 임차인이 직접 구매한 가전 → 임차인 부담
-// - manufacturer_warranty: 제조사 보증기간 내 → 무상 수리 대상
-// - landlord             : 기본 설비(빌트인) → 임대인 부담 (민법 제623조)
-// - negotiable           : 옵션 가전 보증 만료 → 계약서 특약에 따라 갈림
-export type Liability = 'tenant' | 'manufacturer_warranty' | 'landlord' | 'negotiable';
-
 export interface ApplianceReferencePrice {
   id: string;
   appliance_type: ApplianceType;

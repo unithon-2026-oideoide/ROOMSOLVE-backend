@@ -162,56 +162,19 @@ const swaggerSpec = swaggerJSDoc({
             },
           },
         },
-        ApplianceJudgement: {
+        ApplianceGuidance: {
           description:
-            'POST /api/reports/analyze 의 가전 판정. 가전이 아니면 appliance 자체가 null. 보충 질문이 남아 있으면 questions 에 다음 질문이 담기고 liability 는 null.',
+            'POST /api/reports/analyze 의 가전 안내. 가전이 아니면 appliance 자체가 null. ' +
+            '가전으로 판정되면 recommended_path 는 항상 manufacturer_as 로 덮어써진다.',
           type: 'object',
           properties: {
             applianceType: {
               type: 'string',
               enum: ['aircon', 'boiler', 'induction', 'refrigerator', 'washer'],
+              description: 'GET /api/reports/manufacturer-as 의 applianceType 파라미터로 그대로 넘기면 된다.',
             },
-            questions: {
-              type: 'array',
-              description: '아직 답을 받지 못한 보충 질문. 비어 있으면 판정이 끝난 것.',
-              items: {
-                type: 'object',
-                properties: {
-                  id: { type: 'string', enum: ['ownership', 'purchase_age'] },
-                  text: { type: 'string', example: '이 가전은 임대인이 제공한 것인가요?' },
-                  options: {
-                    type: 'array',
-                    items: {
-                      type: 'object',
-                      properties: { value: { type: 'string' }, label: { type: 'string' } },
-                    },
-                  },
-                },
-              },
-            },
-            liability: {
-              type: 'string',
-              nullable: true,
-              enum: ['tenant', 'manufacturer_warranty', 'landlord', 'negotiable'],
-              description:
-                'tenant=임차인 구매 / manufacturer_warranty=보증기간 내 무상 / landlord=빌트인 기본설비(민법 623조) / negotiable=옵션 가전, 특약에 따라 갈림',
-            },
-            basis: { type: 'string', description: '판정 근거' },
             notice: { type: 'string', description: '세입자에게 보여줄 안내 문구' },
-            warning: {
-              type: 'string',
-              nullable: true,
-              description: '보증기간 내일 때 사설 업체 이용 시 유상 전환 경고',
-            },
-            confidence: {
-              type: 'number',
-              nullable: true,
-              description: '판정 확신도 0~1. negotiable 이나 연차 모름이면 낮게 나온다.',
-            },
-            blockVendorMatch: {
-              type: 'boolean',
-              description: 'true 면 업체 매칭으로 넘기지 말고 제조사 A/S 안내로 종료할 것',
-            },
+            warning: { type: 'string', description: '사설 업체를 먼저 부르면 안 되는 이유' },
           },
         },
         ReplacementAdvice: {
