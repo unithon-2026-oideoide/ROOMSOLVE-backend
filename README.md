@@ -32,7 +32,7 @@ Authorize 버튼으로 로그인 후 받은 access token을 넣으면 인증 필
 - `PORT`, `NODE_ENV`
 - `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - `SUPABASE_STORAGE_BUCKET`
-- `ANTHROPIC_API_KEY` (팀원A의 AI 분석 기능에서 사용)
+- `GEMINI_API_KEY` (팀원A의 AI 분석 기능에서 사용 — `POST /api/reports/analyze`)
 
 `.env`는 절대 커밋하지 않는다 — `.gitignore`에 포함되어 있는지 항상 확인.
 
@@ -107,8 +107,9 @@ src/
 > tenant 목록으로 임시 대체함 — 테이블이 생기면 교체할 것.
 
 사진 업로드는 `POST /api/uploads` (multipart, 필드명 `file`)로 처리됨 —
-본인(서버 오너) 담당, 이미 구현 완료. 프론트는 사진을 여기 먼저 올리고
-받은 url을 `POST /api/reports`의 `photo_url` 필드에 넣어서 보내면 됨.
+본인(서버 오너) 담당, 이미 구현 완료. 한 번에 한 장씩 올리므로, 프론트는 사진 수만큼
+호출해서 url을 모은 뒤 그 배열을 `POST /api/reports`의 `photo_urls`에 넣어 보내면 됨.
+서버가 첫 번째 url을 대표 사진(`photo_url`)으로 함께 저장한다.
 
 ### 팀원A (AI 분석 & 경량 갈래)
 
@@ -120,20 +121,40 @@ src/
 
 파일: `src/routes/reports.routes.ts`, `src/controllers/reports.controller.ts`
 
-reports 생성 시 landlord_id 필수 — 프론트에서 세입자당 landlord_id를 미리 확보해서
-같이 보내야 함 (현재 properties 테이블 없이 reports에 직접 저장하는 임시 구조)
+`tenant_id`는 body로 받지 않고 인증 토큰에서 꺼냄. `landlord_id`는 여전히 필수 —
+`properties`(호실) 테이블이 없어 서버에서 세입자→임대인을 유도할 경로가 없기 때문.
+프론트가 세입자당 landlord_id를 미리 확보해서 같이 보내야 함.
 
-**Day1 저녁에 `POST /api/reports/analyze` 응답 스키마 확정 후 팀 전체 공유 필요.**
-현재 컨트롤러에 임시로 아래 스키마를 주석으로 남겨뒀음:
+`GET /api/reports`와 `GET /api/reports/:id`는 **본인 신고만** 반환함. 남의 신고 id로
+조회하면 403이 아니라 404 — 403이면 그 id가 존재한다는 사실이 새기 때문.
+임대인이 자기 소속 신고를 보는 경로는 `GET /api/landlord/requests`로 따로 있음.
+
+**`POST /api/reports/analyze` 응답 스키마 (확정, 구현 완료):**
 
 ```ts
 {
-  category: string,
-  severity: string,
+  category: 'plumbing' | 'electrical' | 'heating' | 'appliance'
+          | 'door_window' | 'interior' | 'pest' | 'other',
+  severity: 'low' | 'medium' | 'high' | 'emergency',
   recommended_path: 'self_fix' | 'manufacturer_as' | 'vendor_match',
-  self_fix_guide: string | null
+  self_fix_guide: string | null   // recommended_path가 self_fix일 때만 채워짐
 }
 ```
+
+AI는 Gemini(`gemini-3.7-flash`)를 씀. responseSchema로 위 값 밖으로는 답할 수 없게
+강제하고, 응답을 받은 뒤 서버에서 한 번 더 검증함 — 잘못된 category가 DB CHECK까지
+흘러가 500으로 터지는 걸 막기 위해서.
+
+이 API는 **분류만 하고 DB에 저장하지 않음.** 결과를 세입자에게 확인시킨 뒤
+`POST /api/reports`로 넘겨서 저장하는 흐름.
+
+Gemini는 이미지 URL을 대신 받아오지 않으므로 서버가 사진을 직접 내려받아 base64로
+넘김. 그래서 `photo_urls`의 url은 서버에서 접근 가능해야 함(Supabase Storage의
+public url이면 됨). 비용·응답시간 때문에 앞의 4장만 분석에 씀.
+
+DB: `db/003_reports_photo_urls.sql`(photo_urls 컬럼 기록 + 백필),
+`db/004_manufacturer_as_seed.sql`(제조사 A/S 시드 10건). 둘 다 재실행 안전.
+004는 이미 적용해 둠.
 
 ### 팀원B (전문업체 매칭)
 
