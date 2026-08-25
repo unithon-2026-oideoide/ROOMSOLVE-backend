@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase';
 import { ApplianceType, Quote, QuoteStatus } from '../types';
 
-const VALID_QUOTE_STATUSES: QuoteStatus[] = ['recommended', 'selected'];
+const VALID_QUOTE_STATUSES: QuoteStatus[] = ['recommended', 'selected', 'rejected'];
 
 // 이상치 판정 기준: 중앙값의 2배 초과.
 const OUTLIER_MULTIPLIER = 2;
@@ -58,10 +58,13 @@ export function adviseReplacement(
 // NOTE: quotes.status 의 DB 기본값은 'pending'(A/공용 스키마)이라 요구사항의
 //       'recommended'를 얻으려면 insert에서 명시해야 한다.
 export async function createQuote(req: Request, res: Response) {
-  const { report_id, vendor_id, price } = req.body as {
+  const { report_id, vendor_id, price, proposed_visit_at } = req.body as {
     report_id: string;
     vendor_id: string;
     price: number;
+    // 업체가 제안하는 방문 가능 시간(선택). db/009. ISO 8601 문자열만 받는다 —
+    // repair.controller.ts의 scheduled_at 검증과 같은 방식이다.
+    proposed_visit_at?: string;
   };
 
   if (!report_id || !vendor_id) {
@@ -70,10 +73,13 @@ export async function createQuote(req: Request, res: Response) {
   if (typeof price !== 'number' || !Number.isInteger(price) || price < 0) {
     return res.status(400).json({ error: 'price는 0 이상의 정수여야 합니다.' });
   }
+  if (proposed_visit_at !== undefined && Number.isNaN(Date.parse(proposed_visit_at))) {
+    return res.status(400).json({ error: 'proposed_visit_at은 ISO 8601 형식이어야 합니다.' });
+  }
 
   const { data, error } = await supabaseAdmin
     .from('quotes')
-    .insert({ report_id, vendor_id, price, status: 'recommended' })
+    .insert({ report_id, vendor_id, price, status: 'recommended', proposed_visit_at: proposed_visit_at ?? null })
     .select()
     .single();
 
@@ -161,9 +167,84 @@ async function buildAdvice(
   return adviseReplacement(med, data.price, data.note);
 }
 
-// PATCH /api/quotes/:id/status — recommended / selected 전환.
-// 한 report에서 selected는 하나만 유지한다.
-// db/002 의 quotes_one_selected_per_report_idx 를 넣었다면 DB도 같은 규칙을 강제한다.
+// 새 repair_schedule row가 생기면(또는 스킵되면) 이 모양으로 응답에 실어 준다.
+interface AutoScheduleResult {
+  schedule: unknown | null;
+  // 스케줄을 못 만든 이유. 성공하면 null. 프론트가 "왜 일정이 안 잡혔는지" 보여줄 수 있게 남긴다.
+  skippedReason: string | null;
+}
+
+// selected로 전환된 견적으로 repair_schedule을 자동 생성한다.
+// - vendors.user_id가 없으면(시딩된 데모 업체) 스킵 — repair_schedule.technician_id가
+//   users(id)를 참조하므로 계정 없는 업체로는 INSERT가 통과하지 않는다.
+// - proposed_visit_at이 없으면(업체가 방문 시간을 안 준 견적) 스킵 — repair.controller.ts의
+//   createSchedule과 동일하게 scheduled_at 없이는 일정을 만들지 않는다.
+// 두 경우 다 에러로 취급하지 않는다 — 견적 선택 자체는 이미 성공했으므로 quote는 그대로 반환한다.
+async function autoCreateSchedule(
+  reportId: string,
+  vendorId: string,
+  proposedVisitAt: string | null
+): Promise<AutoScheduleResult> {
+  const { data: vendor, error: vendorError } = await supabaseAdmin
+    .from('vendors')
+    .select('user_id')
+    .eq('id', vendorId)
+    .maybeSingle();
+
+  if (vendorError) {
+    console.warn(`[quotes] vendor ${vendorId} 조회 실패, repair_schedule 자동 생성을 건너뜁니다:`, vendorError.message);
+    return { schedule: null, skippedReason: '업체 정보를 조회하지 못했습니다.' };
+  }
+  if (!vendor?.user_id) {
+    console.warn(`[quotes] vendor ${vendorId}에 연결된 계정(user_id)이 없어 repair_schedule 자동 생성을 건너뜁니다.`);
+    return { schedule: null, skippedReason: '이 업체는 계정이 연결되어 있지 않아 자동으로 일정을 잡을 수 없습니다.' };
+  }
+  if (!proposedVisitAt) {
+    console.warn(`[quotes] report ${reportId} 견적에 proposed_visit_at이 없어 repair_schedule 자동 생성을 건너뜁니다.`);
+    return { schedule: null, skippedReason: '견적에 제안된 방문 시간이 없어 일정을 자동으로 잡을 수 없습니다.' };
+  }
+
+  const { data: schedule, error: scheduleError } = await supabaseAdmin
+    .from('repair_schedule')
+    .insert({
+      report_id: reportId,
+      technician_id: vendor.user_id,
+      scheduled_at: proposedVisitAt,
+      // 임대인이 이미 이 견적을 선택했으므로 별도 확정 절차 없이 바로 확정 상태로 만든다.
+      confirmed: true,
+    })
+    .select()
+    .single();
+
+  if (scheduleError) {
+    console.warn(`[quotes] report ${reportId} repair_schedule 자동 생성 실패:`, scheduleError.message);
+    return { schedule: null, skippedReason: '방문 일정 생성에 실패했습니다.' };
+  }
+
+  // repair.controller.ts의 addTimelineEntry와 같은 방식 — 타임라인에 'confirmed' 한 줄을 남긴다.
+  const { error: timelineError } = await supabaseAdmin
+    .from('repair_status_timeline')
+    .insert({ report_id: reportId, status: 'confirmed' });
+  if (timelineError) {
+    // 일정 자체는 이미 만들어졌으니 실패로 되돌리지 않는다. 로그만 남긴다.
+    console.warn(`[quotes] report ${reportId} repair_status_timeline 기록 실패:`, timelineError.message);
+  }
+
+  return { schedule, skippedReason: null };
+}
+
+// PATCH /api/quotes/:id/status — recommended / selected / rejected 전환.
+//
+// status를 selected로 바꾸면:
+//   1. 같은 report_id의 나머지 견적을 전부 rejected로 명시 전환한다(지금 선택된 것 제외).
+//      기존에는 이전 selected 한 건만 recommended로 되돌렸지만, 이제 quotes.status에
+//      rejected가 생겨서 "선택 안 된 나머지"를 전부 명확히 거절 처리할 수 있다.
+//   2. 선택된 견적의 proposed_visit_at으로 repair_schedule을 자동 생성하고(확정 상태),
+//      repair_status_timeline에도 'confirmed'를 기록한다. autoCreateSchedule() 참고 —
+//      업체 계정이 없거나 방문 시간이 없으면 조용히 건너뛴다(에러 아님).
+//
+// db/009_quote_visit_and_reject.sql로 quotes.status CHECK에 rejected가 추가돼야
+// 아래 update가 통과한다.
 export async function updateQuoteStatus(req: Request, res: Response) {
   const { id } = req.params;
   const { status } = req.body as { status: QuoteStatus };
@@ -174,7 +255,7 @@ export async function updateQuoteStatus(req: Request, res: Response) {
 
   const { data: target } = await supabaseAdmin
     .from('quotes')
-    .select('id, report_id')
+    .select('id, report_id, vendor_id, proposed_visit_at')
     .eq('id', id)
     .single();
 
@@ -183,16 +264,16 @@ export async function updateQuoteStatus(req: Request, res: Response) {
   }
 
   if (status === 'selected') {
-    // 기존 selected를 먼저 되돌린 뒤 승격시켜야 한다 (002의 unique index가 있으면 순서가 강제됨).
-    const { error: demoteError } = await supabaseAdmin
+    // 선택된 것만 빼고 나머지 전부 rejected. 기존 상태(recommended든 이미 rejected든) 상관없이
+    // 덮어쓴다 — "선택 안 된 건 전부 거절"이라는 규칙이 이전 상태에 따라 달라질 이유가 없다.
+    const { error: rejectError } = await supabaseAdmin
       .from('quotes')
-      .update({ status: 'recommended' })
+      .update({ status: 'rejected' })
       .eq('report_id', target.report_id)
-      .eq('status', 'selected')
       .neq('id', id);
 
-    if (demoteError) {
-      return res.status(500).json({ error: demoteError.message });
+    if (rejectError) {
+      return res.status(500).json({ error: rejectError.message });
     }
   }
 
@@ -206,5 +287,11 @@ export async function updateQuoteStatus(req: Request, res: Response) {
   if (error) {
     return res.status(500).json({ error: error.message });
   }
-  return res.json({ quote: data });
+
+  if (status !== 'selected') {
+    return res.json({ quote: data });
+  }
+
+  const { schedule, skippedReason } = await autoCreateSchedule(target.report_id, target.vendor_id, target.proposed_visit_at);
+  return res.json({ quote: data, schedule, scheduleSkippedReason: skippedReason });
 }

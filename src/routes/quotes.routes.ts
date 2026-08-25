@@ -31,6 +31,12 @@ const router = Router();
  *                 type: integer
  *                 minimum: 0
  *                 example: 80000
+ *               proposed_visit_at:
+ *                 type: string
+ *                 format: date-time
+ *                 description: >
+ *                   업체가 제안하는 방문 가능 시간(선택, ISO 8601). 이 견적이 나중에 selected로
+ *                   바뀌는 순간 이 값으로 repair_schedule이 자동 생성된다. db/009
  *     responses:
  *       201:
  *         description: 등록 성공
@@ -42,7 +48,7 @@ const router = Router();
  *                 quote:
  *                   $ref: '#/components/schemas/Quote'
  *       400:
- *         description: report_id/vendor_id 누락 또는 price가 0 이상의 정수가 아님
+ *         description: report_id/vendor_id 누락, price가 0 이상의 정수가 아님, 또는 proposed_visit_at 형식 오류
  *         content:
  *           application/json:
  *             schema:
@@ -128,8 +134,14 @@ router.get('/', asyncHandler(listQuotes));
  * @swagger
  * /api/quotes/{id}/status:
  *   patch:
- *     summary: 견적 상태 변경 (recommended ↔ selected)
- *     description: status를 selected로 바꾸면, 같은 report에서 기존에 selected였던 다른 견적은 자동으로 recommended로 되돌려져서 report당 selected가 항상 하나만 유지됨.
+ *     summary: 견적 상태 변경 (recommended / selected / rejected)
+ *     description: >
+ *       status를 selected로 바꾸면 같은 report_id의 나머지 견적은 전부 rejected로
+ *       명시 전환된다(지금 선택된 것 제외). 그리고 이 견적의 proposed_visit_at으로
+ *       repair_schedule을 자동 생성(confirmed 상태)하고 repair_status_timeline에도
+ *       'confirmed'를 기록한다 — 단, 업체 계정(vendors.user_id)이 연결돼 있지 않거나
+ *       proposed_visit_at이 비어 있으면 일정 생성은 조용히 건너뛴다(에러 아님, 응답의
+ *       scheduleSkippedReason으로 이유를 알려줌). db/009_quote_visit_and_reject.sql 필요.
  *     tags: [Quotes]
  *     parameters:
  *       - in: path
@@ -148,10 +160,10 @@ router.get('/', asyncHandler(listQuotes));
  *             properties:
  *               status:
  *                 type: string
- *                 enum: [recommended, selected]
+ *                 enum: [recommended, selected, rejected]
  *     responses:
  *       200:
- *         description: 상태 변경 성공
+ *         description: 상태 변경 성공. status가 selected일 때만 schedule/scheduleSkippedReason이 채워짐(그 외 상태 변경은 quote만 반환).
  *         content:
  *           application/json:
  *             schema:
@@ -159,8 +171,17 @@ router.get('/', asyncHandler(listQuotes));
  *               properties:
  *                 quote:
  *                   $ref: '#/components/schemas/Quote'
+ *                 schedule:
+ *                   nullable: true
+ *                   allOf:
+ *                     - $ref: '#/components/schemas/RepairSchedule'
+ *                   description: 자동 생성된 방문 일정. selected가 아니거나 생성이 스킵되면 null.
+ *                 scheduleSkippedReason:
+ *                   type: string
+ *                   nullable: true
+ *                   description: schedule이 null인 이유(업체 계정 없음, 방문 시간 없음 등). 정상 생성됐거나 selected가 아니면 null.
  *       400:
- *         description: status가 recommended/selected 중 하나가 아님
+ *         description: status가 recommended/selected/rejected 중 하나가 아님
  *         content:
  *           application/json:
  *             schema:

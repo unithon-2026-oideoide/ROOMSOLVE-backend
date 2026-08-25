@@ -81,6 +81,11 @@ reportsRouter.use(requireAuth);
  *               self_fix_guide:
  *                 type: string
  *                 nullable: true
+ *               available_times:
+ *                 type: string
+ *                 nullable: true
+ *                 description: >
+ *                   세입자가 집에 있는 시간대. 자유 텍스트, 선택값. 예 "평일 오후, 주말 오전". db/009
  *     security:
  *       - bearerAuth: []
  *     responses:

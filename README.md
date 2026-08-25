@@ -189,10 +189,19 @@ DB: 테이블 DDL은 `supabase/schema.sql`에 이미 있음. B가 추가로 돌�
   필터하므로 이걸 돌려야 매칭 API가 동작함.
 
 `quotes.status`는 DB 기본값이 `pending`이지만 B 범위에서는 `recommended` /
-`selected` 두 값만 쓰며, `createQuote`가 `recommended`를 명시해서 넣음.
+`selected` / `rejected` 세 값만 쓰며, `createQuote`가 `recommended`를 명시해서 넣음.
 `quotes.is_outlier` 컬럼은 사용하지 않음 — median은 조회 시점에 계산함.
 
 median / 이상치 판정 검증: `npx ts-node src/controllers/quotes.controller.check.ts`
+
+**신고→매칭→견적→선택 플로우 보완 (db/009_quote_visit_and_reject.sql, 팀 공유 후 실행 필요):**
+`reports.available_times`(세입자 거주 가능 시간대), `quotes.proposed_visit_at`(업체가
+제안하는 방문 가능 시간) 컬럼이 추가됨. `PATCH /api/quotes/:id/status`로 견적을
+`selected`로 바꾸면, 같은 신고의 나머지 견적은 전부 `rejected`로 자동 전환되고,
+동시에 선택된 견적의 `proposed_visit_at`으로 `repair_schedule`이 자동 생성됨(확정
+상태, 타임라인에 `confirmed` 기록). 단, 견적을 낸 업체에 연결된 계정(`vendors.user_id`)이
+없거나 `proposed_visit_at`이 비어 있으면 일정 생성은 조용히 건너뜀 — 이 경우
+응답의 `scheduleSkippedReason`으로 이유가 내려옴.
 
 ---
 
