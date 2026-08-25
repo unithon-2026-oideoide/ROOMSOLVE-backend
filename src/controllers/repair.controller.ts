@@ -74,7 +74,8 @@ export async function confirmSchedule(req: Request, res: Response) {
     .update({ confirmed: true })
     .eq('id', id)
     .select()
-    .single();
+    // single()은 0건일 때 에러를 내서 아래 404 분기가 죽는다. maybeSingle()은 data=null을 준다.
+    .maybeSingle();
 
   if (error) {
     return res.status(500).json({ error: error.message });
