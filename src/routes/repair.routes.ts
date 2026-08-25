@@ -66,7 +66,9 @@ router.post('/schedule', asyncHandler(createSchedule));
  *   get:
  *     summary: 방문 일정 목록 조회 (리포트별 또는 기사별)
  *     description: >
- *       scheduled_at 오름차순. 각 항목에 담당 technician 정보(id, name, phone)가 조인되어 포함됨.
+ *       scheduled_at 오름차순. 각 항목에 담당 technician 정보(id, name, phone)와
+ *       신고 내용 report(id, category, severity, description, photo_url, status, available_times)가
+ *       조인되어 포함됨 — 기사 홈의 "배정된 작업" 카드를 이 응답 하나로 그릴 수 있다.
  *       reportId 또는 technicianId 중 최소 하나가 필요하며, 둘 다 주면 AND로 걸린다.
  *       기사 홈의 배정 작업 목록은 technicianId로 조회한다.
  *     tags: [Repair]
@@ -111,6 +113,8 @@ router.post('/schedule', asyncHandler(createSchedule));
  *                               phone:
  *                                 type: string
  *                                 nullable: true
+ *                           report:
+ *                             $ref: '#/components/schemas/Report'
  *       400:
  *         description: reportId / technicianId 둘 다 누락
  *         content:
@@ -170,7 +174,10 @@ router.patch('/schedule/:id/confirm', asyncHandler(confirmSchedule));
  * /api/repair/status:
  *   post:
  *     summary: 수리 진행 상태 변경 (타임라인 기록)
- *     description: repair_status_timeline에 이력 한 줄을 추가함. status는 DB CHECK 제약이 없는 자유 문자열이며, scheduled/confirmed/in_progress/done 정도를 상정.
+ *     description: |
+ *       repair_status_timeline에 이력 한 줄을 추가함. status는 DB CHECK 제약이 없는 자유 문자열이며,
+ *       scheduled/confirmed/in_progress/done 정도를 상정.
+ *       **status가 'done'(수리 완료)이면 완료 사진 photo_url이 필수**다. 그 외 상태에서 보낸 photo_url은 무시된다.
  *     tags: [Repair]
  *     requestBody:
  *       required: true
@@ -186,6 +193,12 @@ router.patch('/schedule/:id/confirm', asyncHandler(confirmSchedule));
  *               status:
  *                 type: string
  *                 example: in_progress
+ *               photo_url:
+ *                 type: string
+ *                 format: uri
+ *                 description: |
+ *                   수리 완료 사진 URL. status가 'done'일 때 필수.
+ *                   POST /api/uploads로 먼저 올린 뒤 그 url을 넣는다.
  *     responses:
  *       201:
  *         description: 이력 추가 성공
@@ -197,7 +210,7 @@ router.patch('/schedule/:id/confirm', asyncHandler(confirmSchedule));
  *                 entry:
  *                   $ref: '#/components/schemas/RepairStatusTimelineEntry'
  *       400:
- *         description: report_id/status 누락
+ *         description: report_id/status 누락, 또는 status가 'done'인데 photo_url이 없음
  *         content:
  *           application/json:
  *             schema:

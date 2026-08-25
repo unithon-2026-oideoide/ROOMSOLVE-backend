@@ -167,5 +167,7 @@ export interface RepairStatusTimeline {
   id: string;
   report_id: string;
   status: string;
+  // 수리 완료 사진. status가 'done'일 때만 채워진다. db/010
+  photo_url: string | null;
   changed_at: string;
 }
