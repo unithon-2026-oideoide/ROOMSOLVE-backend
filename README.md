@@ -62,6 +62,10 @@ src/
 > `GET /api/landlord/properties`는 별도 `properties` 테이블이 아직 없어서, 리포트에 연결된
 > tenant 목록으로 임시 대체함 — 테이블이 생기면 교체할 것.
 
+사진 업로드는 `POST /api/uploads` (multipart, 필드명 `file`)로 처리됨 —
+본인(서버 오너) 담당, 이미 구현 완료. 프론트는 사진을 여기 먼저 올리고
+받은 url을 `POST /api/reports`의 `photo_url` 필드에 넣어서 보내면 됨.
+
 ### 팀원A (AI 분석 & 경량 갈래)
 
 - `POST /api/reports`
