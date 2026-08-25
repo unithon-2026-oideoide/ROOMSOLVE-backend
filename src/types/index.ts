@@ -63,6 +63,8 @@ export interface Report {
   recommended_path: RecommendedPath | null;
   self_fix_guide: string | null;
   appliance_type: ApplianceType | null; // 가전 하자일 때만. db/006
+  // 세입자가 집에 있는 시간대. 단순 텍스트로 시작(예: "평일 오후, 주말 오전"). db/009.
+  available_times: string | null;
   status: string;
   created_at: string;
 }
@@ -130,7 +132,7 @@ export interface Vendor {
   created_at: string;
 }
 
-export type QuoteStatus = 'recommended' | 'selected';
+export type QuoteStatus = 'recommended' | 'selected' | 'rejected';
 
 export interface Quote {
   id: string;
@@ -139,6 +141,9 @@ export interface Quote {
   price: number;
   status: QuoteStatus;
   is_outlier: boolean;
+  // 업체가 견적 제출 시 제안한 방문 가능 시간. db/009. selected로 전환되는 순간
+  // 이 값으로 repair_schedule이 자동 생성된다(quotes.controller.ts updateQuoteStatus).
+  proposed_visit_at: string | null;
   created_at: string;
 }
 

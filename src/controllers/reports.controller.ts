@@ -36,7 +36,7 @@ const RECOMMENDED_PATHS: RecommendedPath[] = ['self_fix', 'manufacturer_as', 've
 // 쓴다. 둘 다 없으면 400으로 막는다 — 아직 어느 임대인과도 연결 안 된 세입자다.
 export async function createReport(req: AuthedRequest, res: Response) {
   const { landlord_id, photo_urls, description, category, severity, recommended_path, self_fix_guide,
-          appliance_type } =
+          appliance_type, available_times } =
     req.body as {
       landlord_id?: string;
       photo_urls?: unknown;
@@ -46,6 +46,8 @@ export async function createReport(req: AuthedRequest, res: Response) {
       recommended_path?: string;
       self_fix_guide?: string;
       appliance_type?: string;
+      // 세입자가 집에 있는 시간대. 자유 텍스트, 선택값. db/009.
+      available_times?: string;
     };
 
   let landlordId = landlord_id;
@@ -100,6 +102,7 @@ export async function createReport(req: AuthedRequest, res: Response) {
       recommended_path: recommended_path ?? null,
       self_fix_guide: self_fix_guide ?? null,
       appliance_type: appliance_type ?? null,
+      available_times: available_times ?? null,
       status: 'pending',
     })
     .select()
