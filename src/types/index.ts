@@ -30,7 +30,10 @@ export interface Report {
   id: string;
   tenant_id: string;
   landlord_id: string;
+  // photo_urls가 실제 사진 목록이고, photo_url은 그중 대표 1장이다.
+  // DB에서 photo_url만 NOT NULL이라 createReport가 photo_urls[0]을 채워 넣는다.
   photo_url: string;
+  photo_urls: string[];
   description: string | null;
   category: string | null;
   severity: string | null;

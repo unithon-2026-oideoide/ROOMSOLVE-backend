@@ -52,7 +52,7 @@ export async function login(req: Request, res: Response) {
     return res.status(401).json({ error: error?.message ?? '이메일 또는 비밀번호가 올바르지 않습니다.' });
   }
 
-  const { data: profile, error: profileError } = await supabase
+  const { data: profile, error: profileError } = await supabaseAdmin
     .from('users')
     .select('*')
     .eq('id', data.user.id)
