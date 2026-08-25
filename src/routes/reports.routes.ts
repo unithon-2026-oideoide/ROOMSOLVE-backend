@@ -200,7 +200,7 @@ reportsRouter.get('/:id', asyncHandler(getReport));
  *   post:
  *     summary: 사진/설명 기반 AI 하자 분석
  *     description: |
- *       Claude Vision으로 사진을 분석해 카테고리·긴급도·해결 경로를 판정한다.
+ *       Gemini로 사진을 분석해 카테고리·긴급도·해결 경로를 판정한다.
  *       **분류만 하고 DB에 저장하지 않는다.** 결과를 세입자에게 확인시킨 뒤
  *       POST /api/reports에 그대로 넘겨서 저장하는 흐름이다.
  *       landlord_id는 이 API와 무관하다.
@@ -280,7 +280,7 @@ reportsRouter.get('/:id', asyncHandler(getReport));
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *       503:
- *         description: ANTHROPIC_API_KEY 미설정 또는 잘못된 키
+ *         description: GEMINI_API_KEY 미설정
  *         content:
  *           application/json:
  *             schema:

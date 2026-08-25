@@ -27,8 +27,7 @@ const router = Router();
  *             required: [role]
  *             properties:
  *               role:
- *                 type: string
- *                 enum: [tenant, landlord, technician]
+ *                 $ref: '#/components/schemas/UserRole'
  *     responses:
  *       200:
  *         description: role 변경 성공

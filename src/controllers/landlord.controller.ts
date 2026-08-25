@@ -1,6 +1,15 @@
 import { Response } from 'express';
 import { AuthedRequest } from '../middleware/auth';
 import { supabaseAdmin } from '../config/supabase';
+import { RepairCategory } from '../types';
+
+// GET /api/landlord/requests, GET /api/landlord/requests/:id, GET /api/landlord/properties가
+// 공통으로 조인해 오는 tenant 프로필 형태.
+interface TenantSummary {
+  id: string;
+  name: string;
+  phone: string | null;
+}
 
 // NOTE: 아래 쿼리들은 `reports` 테이블에 landlord_id 컬럼이 있다고 가정합니다.
 // 공유받은 스키마 요약에는 명시돼 있지 않던 컬럼이라, 실제 DB 구조와 다르면
@@ -68,7 +77,7 @@ export async function approveRequest(req: AuthedRequest, res: Response) {
 
 export async function createAutoApprovalPolicy(req: AuthedRequest, res: Response) {
   const landlordId = req.user!.id;
-  const { category, auto_approve_limit } = req.body as { category: string; auto_approve_limit: number };
+  const { category, auto_approve_limit } = req.body as { category: RepairCategory; auto_approve_limit: number };
 
   if (!category || typeof auto_approve_limit !== 'number') {
     return res.status(400).json({ error: 'category(string), auto_approve_limit(number)이 필요합니다.' });
@@ -106,10 +115,12 @@ export async function listProperties(req: AuthedRequest, res: Response) {
     return res.status(500).json({ error: error.message });
   }
 
+  // supabase-js는 FK 관계를 코드 생성 타입 없이는 배열로 추론한다.
+  // reports_tenant_id_fkey는 실제로는 to-one 관계라 런타임엔 단일 객체로 온다.
   const seen = new Set<string>();
-  const tenants = (data ?? [])
-    .map((row: any) => row.tenant)
-    .filter((tenant: any) => {
+  const tenants = (data as unknown as { tenant: TenantSummary | null }[])
+    .map((row) => row.tenant)
+    .filter((tenant): tenant is TenantSummary => {
       if (!tenant || seen.has(tenant.id)) return false;
       seen.add(tenant.id);
       return true;

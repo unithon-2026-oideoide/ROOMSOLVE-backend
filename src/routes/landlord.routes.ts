@@ -183,8 +183,7 @@ router.patch('/requests/:id/approve', asyncHandler(approveRequest));
  *             required: [category, auto_approve_limit]
  *             properties:
  *               category:
- *                 type: string
- *                 enum: [plumbing, electrical, heating, appliance, door_window, interior, pest, other]
+ *                 $ref: '#/components/schemas/Category'
  *               auto_approve_limit:
  *                 type: integer
  *                 minimum: 0

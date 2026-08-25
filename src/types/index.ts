@@ -3,6 +3,10 @@
 
 export type UserRole = 'tenant' | 'landlord' | 'technician';
 
+// UserRole의 실제 값 목록. 컨트롤러의 role 검증(auth.controller.ts, users.controller.ts)이
+// 이 배열 하나를 같이 쓴다 — 값을 추가/변경할 때 여기만 고치면 된다.
+export const USER_ROLES: UserRole[] = ['tenant', 'landlord', 'technician'];
+
 export interface User {
   id: string;
   name: string;
