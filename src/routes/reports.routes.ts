@@ -231,6 +231,19 @@ reportsRouter.get('/:id', asyncHandler(getReport));
  *                 type: string
  *                 nullable: true
  *                 description: 세입자가 남긴 설명. 있으면 판정 정확도가 올라간다.
+ *               answers:
+ *                 type: object
+ *                 description: >
+ *                   가전 보충 질문의 답. 응답의 appliance.questions 에 질문이 담겨 오면
+ *                   답을 모아 같은 엔드포인트로 다시 호출한다. 서버에 대화 세션을 두지
+ *                   않으므로 매번 photo_urls 와 함께 보내야 한다.
+ *                 properties:
+ *                   ownership:
+ *                     type: string
+ *                     enum: [landlord_builtin, landlord_option, tenant_purchased]
+ *                   purchase_age:
+ *                     type: string
+ *                     enum: [within_2y, from_2y_to_10y, over_10y, unknown]
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -317,6 +330,15 @@ export const manufacturerAsRouter = Router();
  *           type: string
  *           enum: [plumbing, electrical, heating, appliance, door_window, interior, pest, other]
  *         description: 조회할 하자 카테고리
+ *       - in: query
+ *         name: applianceType
+ *         required: false
+ *         schema:
+ *           type: string
+ *           enum: [aircon, boiler, induction, refrigerator, washer]
+ *         description: >
+ *           가전 종류. 주면 그 종류 전담 A/S와 해당 카테고리 범용 A/S만 반환한다.
+ *           생략하면 카테고리 전체를 반환한다(기존 동작).
  *     responses:
  *       200:
  *         description: 조회 성공 (해당 카테고리에 등록된 제조사가 없으면 빈 배열)
