@@ -124,6 +124,25 @@ const swaggerSpec = swaggerJSDoc({
             },
           },
         },
+        ReplacementAdvice: {
+          description:
+            'GET /api/quotes 의 수리/교체 권장. 수리 예상비(견적 중앙값)가 동급 신품가의 60% 이상이면 replace.',
+          type: 'object',
+          properties: {
+            repairEstimate: {
+              type: 'integer',
+              example: 235000,
+              description: '수리 예상비. 해당 리포트 견적들의 중앙값을 쓴다(이상치 견적 하나에 판정이 휘둘리지 않도록).',
+            },
+            replacementPrice: {
+              type: 'integer',
+              example: 700000,
+              description: '동급 신품가. appliance_reference_price 의 해당 종류 최저가(기본형).',
+            },
+            recommendation: { type: 'string', enum: ['repair', 'replace'] },
+            reason: { type: 'string', example: '수리 예상비가 동급 신품가(벽걸이 기본형)의 34%로 60% 미만입니다. 수리가 낫습니다.' },
+          },
+        },
         Vendor: {
           type: 'object',
           properties: {

@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { supabaseAdmin } from '../config/supabase';
-import { Quote, QuoteStatus } from '../types';
+import { ApplianceType, Quote, QuoteStatus } from '../types';
 
 const VALID_QUOTE_STATUSES: QuoteStatus[] = ['recommended', 'selected'];
 
@@ -19,6 +19,39 @@ export function median(values: number[]): number | null {
 // 중앙값의 OUTLIER_MULTIPLIER배를 초과하면 이상치. 견적이 1건뿐이면(med === price) 이상치가 될 수 없다.
 export function isOutlier(price: number, med: number | null): boolean {
   return med !== null && price > med * OUTLIER_MULTIPLIER;
+}
+
+const APPLIANCE_TYPES: ApplianceType[] = ['aircon', 'boiler', 'induction', 'refrigerator', 'washer'];
+
+// 수리비가 동급 신품가의 이 비율 이상이면 교체를 권한다.
+const REPLACE_THRESHOLD_RATIO = 0.6;
+
+export interface ReplacementAdvice {
+  repairEstimate: number;
+  replacementPrice: number;
+  recommendation: 'repair' | 'replace';
+  reason: string;
+}
+
+// 수리비 vs 동급 신품가. 기준 비율 '이상'이면 교체(이상치 판정과 달리 경계값 포함).
+export function adviseReplacement(
+  repairEstimate: number,
+  replacementPrice: number,
+  priceNote: string | null
+): ReplacementAdvice {
+  const ratio = repairEstimate / replacementPrice;
+  const percent = Math.round(ratio * 100);
+  const replace = ratio >= REPLACE_THRESHOLD_RATIO;
+  const basis = priceNote ? `동급 신품가(${priceNote})` : '동급 신품가';
+
+  return {
+    repairEstimate,
+    replacementPrice,
+    recommendation: replace ? 'replace' : 'repair',
+    reason: replace
+      ? `수리 예상비가 ${basis}의 ${percent}%로 ${REPLACE_THRESHOLD_RATIO * 100}% 이상입니다. 교체가 낫습니다.`
+      : `수리 예상비가 ${basis}의 ${percent}%로 ${REPLACE_THRESHOLD_RATIO * 100}% 미만입니다. 수리가 낫습니다.`,
+  };
 }
 
 // POST /api/quotes — 견적 등록.
@@ -50,13 +83,20 @@ export async function createQuote(req: Request, res: Response) {
   return res.status(201).json({ quote: data });
 }
 
-// GET /api/quotes?reportId= — 해당 report의 견적 목록 + median 기반 이상치 플래그.
+// GET /api/quotes?reportId=[&applianceType=] — 견적 목록 + median 기반 이상치 플래그.
 // 이상치는 목록에서 제외하지 않고 플래그만 달아서 함께 반환한다.
+//
+// applianceType을 주면 동급 신품가와 비교해 수리/교체 권장을 함께 낸다.
+// 안 주면 replacementAdvice가 null이라 기존 호출은 그대로 동작한다.
 export async function listQuotes(req: Request, res: Response) {
   const reportId = req.query.reportId as string | undefined;
+  const applianceType = req.query.applianceType as ApplianceType | undefined;
 
   if (!reportId) {
     return res.status(400).json({ error: 'reportId 쿼리 파라미터가 필요합니다.' });
+  }
+  if (applianceType && !APPLIANCE_TYPES.includes(applianceType)) {
+    return res.status(400).json({ error: `applianceType은 ${APPLIANCE_TYPES.join('|')} 중 하나여야 합니다.` });
   }
 
   const { data, error } = await supabaseAdmin
@@ -80,7 +120,28 @@ export async function listQuotes(req: Request, res: Response) {
     return { ...q, isOutlier: outlier, outlierReason: outlier ? OUTLIER_REASON : null };
   });
 
-  return res.json({ quotes, median: med });
+  return res.json({ quotes, median: med, replacementAdvice: await buildAdvice(applianceType, med) });
+}
+
+// 신품 기준가는 종류별 최저가(기본형)를 쓴다 — "같은 걸 새로 사면 얼마"가 기준이라
+// 프리미엄 등급으로 잡으면 교체 권장이 거의 나오지 않는다.
+// 견적이 없거나(med === null) applianceType을 안 주면 판정하지 않는다.
+async function buildAdvice(
+  applianceType: ApplianceType | undefined,
+  med: number | null
+): Promise<ReplacementAdvice | null> {
+  if (!applianceType || med === null) return null;
+
+  const { data } = await supabaseAdmin
+    .from('appliance_reference_price')
+    .select('price, note')
+    .eq('appliance_type', applianceType)
+    .order('price', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (!data) return null;
+  return adviseReplacement(med, data.price, data.note);
 }
 
 // PATCH /api/quotes/:id/status — recommended / selected 전환.
