@@ -1,36 +1,36 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler';
-import { updateUserRole } from '../controllers/users.controller';
+import { requireAuth } from '../middleware/auth';
+import { linkLandlordByCode } from '../controllers/users.controller';
 
 const router = Router();
 
 /**
  * @swagger
- * /api/users/{id}/role:
+ * /api/users/link-landlord:
  *   patch:
- *     summary: 사용자 role 변경
+ *     summary: 임대인 초대 코드로 세입자-임대인 연결
+ *     description: |
+ *       landlord role 계정이 회원가입 시 발급받은 6자리 초대 코드를 로그인한
+ *       사용자(보통 세입자)의 linked_landlord_id에 연결한다. 연결해두면
+ *       POST /api/reports 호출 시 landlord_id를 생략해도 이 값이 대신 쓰인다.
  *     tags: [Users]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *         description: 변경할 사용자의 id
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required: [role]
+ *             required: [code]
  *             properties:
- *               role:
- *                 $ref: '#/components/schemas/UserRole'
+ *               code:
+ *                 type: string
+ *                 example: AB12CD
  *     responses:
  *       200:
- *         description: role 변경 성공
+ *         description: 연결 성공
  *         content:
  *           application/json:
  *             schema:
@@ -38,14 +38,28 @@ const router = Router();
  *               properties:
  *                 user:
  *                   $ref: '#/components/schemas/User'
+ *                 landlord:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                     name:
+ *                       type: string
  *       400:
- *         description: role 값이 유효하지 않음
+ *         description: code 누락 또는 본인 코드를 연결하려 함
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: 인증 토큰 누락 또는 만료
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *       404:
- *         description: 사용자를 찾을 수 없음
+ *         description: 유효하지 않은 초대 코드
  *         content:
  *           application/json:
  *             schema:
@@ -57,6 +71,6 @@ const router = Router();
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.patch('/:id/role', asyncHandler(updateUserRole));
+router.patch('/link-landlord', requireAuth, asyncHandler(linkLandlordByCode));
 
 export default router;

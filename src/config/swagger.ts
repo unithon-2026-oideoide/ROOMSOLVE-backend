@@ -54,6 +54,18 @@ const swaggerSpec = swaggerJSDoc({
             name: { type: 'string' },
             role: { $ref: '#/components/schemas/UserRole' },
             phone: { type: 'string', nullable: true },
+            landlord_code: {
+              type: 'string',
+              nullable: true,
+              description: 'role이 landlord인 계정에만 회원가입 시 자동 발급되는 6자리 초대 코드',
+              example: 'AB12CD',
+            },
+            linked_landlord_id: {
+              type: 'string',
+              format: 'uuid',
+              nullable: true,
+              description: 'PATCH /api/users/link-landlord로 연결한 임대인의 id',
+            },
             created_at: { type: 'string', format: 'date-time' },
           },
         },

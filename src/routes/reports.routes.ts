@@ -35,6 +35,11 @@ reportsRouter.use(requireAuth);
  *       tenant_id는 body로 받지 않는다 — 인증 토큰에서 꺼낸다.
  *       category / severity / recommended_path / self_fix_guide는
  *       POST /api/reports/analyze 결과를 그대로 넘길 때만 채우면 되고, 생략 가능하다.
+ *
+ *       landlord_id는 생략 가능하다. 생략하면 로그인한 세입자의
+ *       users.linked_landlord_id(PATCH /api/users/link-landlord로 임대인 초대
+ *       코드를 입력해 채운 값)를 대신 쓴다. 아직 어느 임대인과도 연결돼 있지 않고
+ *       landlord_id도 안 보내면 400이 난다.
  *     tags: [Reports]
  *     requestBody:
  *       required: true
@@ -42,12 +47,15 @@ reportsRouter.use(requireAuth);
  *         application/json:
  *           schema:
  *             type: object
- *             required: [landlord_id, photo_urls]
+ *             required: [photo_urls]
  *             properties:
  *               landlord_id:
  *                 type: string
  *                 format: uuid
- *                 description: 세입자가 속한 임대인 id (프론트에서 미리 확보해서 함께 전달)
+ *                 nullable: true
+ *                 description: >
+ *                   세입자가 속한 임대인 id. 생략하면 linked_landlord_id를 대신 쓴다
+ *                   (레거시 호환용 필드 — 새로 연동할 때는 생략을 권장).
  *               photo_urls:
  *                 type: array
  *                 minItems: 1
@@ -86,7 +94,7 @@ reportsRouter.use(requireAuth);
  *                 report:
  *                   $ref: '#/components/schemas/Report'
  *       400:
- *         description: landlord_id 누락, photo_urls가 비었거나, category/severity/recommended_path 값이 허용 목록 밖
+ *         description: photo_urls가 비었거나, landlord_id/linked_landlord_id 둘 다 없거나, category/severity/recommended_path 값이 허용 목록 밖
  *         content:
  *           application/json:
  *             schema:
