@@ -11,6 +11,7 @@
 --   db/001_vendor_matching.sql       vendors 시딩 15개 (데이터만)
 --   db/002_vendors_rating_active.sql vendors.rating / is_active 추가 + quotes 부분 인덱스
 --   db/007_vendors_signup_link.sql   vendors.user_id / business_number 추가 (수리업체 가입)
+--   db/008_landlord_tenant_link.sql  users.landlord_code / linked_landlord_id 추가 (초대 코드 매칭)
 --
 -- NOT NULL과 기본값은 PostgREST가 노출하는 실제 스키마에서 읽어 맞춘 것이다.
 -- 실제 DB는 PK와 핵심 FK 말고는 NOT NULL이 거의 걸려 있지 않다. 제약이 느슨하다는
@@ -34,13 +35,21 @@
 -- (id에 gen_random_uuid() 기본값이 붙어 있지만 실제로는 쓰이지 않는다.
 --  auth.users로의 외래키가 실제로 걸려 있는지는 PostgREST로 확인되지 않았다.)
 -- ---------------------------------------------------------------------------
+-- landlord_code / linked_landlord_id 는 db/008_landlord_tenant_link.sql 로 추가된 컬럼.
+-- landlord_code   : role이 landlord인 계정에만 회원가입 시 자동 발급되는 6자리 초대 코드.
+-- linked_landlord_id : 세입자가 그 코드를 입력해 연결한 임대인의 id(PATCH /api/users/link-landlord).
+--                       reports.landlord_id를 생략하고 신고하면 createReport가 이 값을 대신 쓴다.
 create table public.users (
-  id         uuid primary key default gen_random_uuid(),
-  name       text not null,
-  role       text not null check (role in ('tenant', 'landlord', 'technician')),
-  phone      text,
-  created_at timestamptz default now()
+  id                 uuid primary key default gen_random_uuid(),
+  name               text not null,
+  role               text not null check (role in ('tenant', 'landlord', 'technician')),
+  phone              text,
+  landlord_code      text unique,
+  linked_landlord_id uuid references public.users (id) on delete set null,
+  created_at         timestamptz default now()
 );
+
+create index users_linked_landlord_id_idx on public.users (linked_landlord_id);
 
 
 -- ---------------------------------------------------------------------------

@@ -29,8 +29,11 @@ const RECOMMENDED_PATHS: RecommendedPath[] = ['self_fix', 'manufacturer_as', 've
 // url을 모은 뒤 그 배열을 통째로 보내면 된다. DB에서 photo_url만 NOT NULL이라
 // 첫 번째 원소를 대표 사진으로 함께 저장한다.
 //
-// landlord_id는 여전히 body로 받는다. properties(호실) 테이블이 없어서 세입자와
-// 임대인을 이어줄 경로가 서버에 없기 때문이다. 테이블이 생기면 조인으로 대체할 것.
+// landlord_id는 body로 직접 보낼 수도 있지만(레거시 호환) 생략하는 것을 기본으로
+// 상정한다. properties(호실) 테이블이 없어 세입자가 자기 landlord_id를 알 방법이
+// 없었는데, db/008_landlord_tenant_link.sql로 생긴 users.linked_landlord_id
+// (PATCH /api/users/link-landlord로 임대인 초대 코드를 입력해 채운 값)를 대신
+// 쓴다. 둘 다 없으면 400으로 막는다 — 아직 어느 임대인과도 연결 안 된 세입자다.
 export async function createReport(req: AuthedRequest, res: Response) {
   const { landlord_id, photo_urls, description, category, severity, recommended_path, self_fix_guide,
           appliance_type } =
@@ -45,8 +48,23 @@ export async function createReport(req: AuthedRequest, res: Response) {
       appliance_type?: string;
     };
 
-  if (!landlord_id) {
-    return res.status(400).json({ error: 'landlord_id는 필수입니다.' });
+  let landlordId = landlord_id;
+  if (!landlordId) {
+    const { data: me, error: meError } = await supabaseAdmin
+      .from('users')
+      .select('linked_landlord_id')
+      .eq('id', req.user!.id)
+      .maybeSingle();
+    if (meError) {
+      return res.status(500).json({ error: meError.message });
+    }
+    landlordId = me?.linked_landlord_id ?? undefined;
+  }
+
+  if (!landlordId) {
+    return res.status(400).json({
+      error: '연결된 임대인이 없습니다. 설정에서 임대인 초대 코드를 먼저 입력하거나 landlord_id를 직접 보내주세요.',
+    });
   }
 
   const urls = Array.isArray(photo_urls) ? photo_urls.filter((u): u is string => typeof u === 'string' && !!u) : [];
@@ -73,7 +91,7 @@ export async function createReport(req: AuthedRequest, res: Response) {
     .from('reports')
     .insert({
       tenant_id: req.user!.id,
-      landlord_id,
+      landlord_id: landlordId,
       photo_url: urls[0],
       photo_urls: urls,
       description: description ?? null,
