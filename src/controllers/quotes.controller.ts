@@ -292,6 +292,20 @@ export async function updateQuoteStatus(req: Request, res: Response) {
     return res.json({ quote: data });
   }
 
+  // 임대인이 견적을 고른 것이 곧 승인이다 — 프론트가 PATCH /api/landlord/requests/:id/approve를
+  // 따로 부르지 않아도 신고가 '수리 대기'(approved)로 넘어가야 한다.
+  // status가 pending일 때만 올린다: 이미 rejected된 신고를 견적 선택으로 되살리거나,
+  // 수리가 시작된(in_progress/done) 신고를 approved로 되돌리면 안 된다.
+  const { error: reportError } = await supabaseAdmin
+    .from('reports')
+    .update({ status: 'approved' })
+    .eq('id', target.report_id)
+    .eq('status', 'pending');
+  if (reportError) {
+    // 견적 선택 자체는 이미 성공했으므로 실패로 되돌리지 않는다. 로그만 남긴다.
+    console.warn(`[quotes] report ${target.report_id} status를 approved로 올리지 못했습니다:`, reportError.message);
+  }
+
   const { schedule, skippedReason } = await autoCreateSchedule(target.report_id, target.vendor_id, target.proposed_visit_at);
   return res.json({ quote: data, schedule, scheduleSkippedReason: skippedReason });
 }

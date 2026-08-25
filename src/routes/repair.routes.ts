@@ -178,6 +178,11 @@ router.patch('/schedule/:id/confirm', asyncHandler(confirmSchedule));
  *       repair_status_timeline에 이력 한 줄을 추가함. status는 DB CHECK 제약이 없는 자유 문자열이며,
  *       scheduled/confirmed/in_progress/done 정도를 상정.
  *       **status가 'done'(수리 완료)이면 완료 사진 photo_url이 필수**다. 그 외 상태에서 보낸 photo_url은 무시된다.
+ *
+ *       status가 in_progress / done이면 reports.status도 같은 값으로 올린다 — 임대인·세입자
+ *       목록 화면이 reports.status 하나로 그룹을 나누기 때문. scheduled / confirmed는 올리지
+ *       않는다(일정이 잡히는 중에도 '수리 대기'가 맞다).
+ *       reports.status 흐름: pending(승인 대기) → approved(수리 대기) → in_progress(수리 진행 중) → done(완료)
  *     tags: [Repair]
  *     requestBody:
  *       required: true
