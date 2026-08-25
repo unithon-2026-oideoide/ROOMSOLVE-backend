@@ -103,8 +103,10 @@ src/
 
 > 임대인 라우트는 `reports.landlord_id` 컬럼이 있다고 가정하고 구현했음.
 > 실제 스키마와 다르면 `src/controllers/landlord.controller.ts`의 쿼리를 맞춰서 수정 필요.
-> `GET /api/landlord/properties`는 별도 `properties` 테이블이 아직 없어서, 리포트에 연결된
-> tenant 목록으로 임시 대체함 — 테이블이 생기면 교체할 것.
+> `GET /api/landlord/properties`는 별도 `properties` 테이블이 아직 없어서, `users.linked_landlord_id`로
+> 연결된 tenant 목록으로 임시 대체함(아래 "임대인-세입자 매칭" 참고) — 테이블이 생기면 교체할 것.
+> 예전에는 `reports.landlord_id`(신고 당시 스냅샷)에서 뽑아서, 세입자가 초대 코드로 다른 임대인에게
+> 옮겨가도 예전 임대인 목록에 계속 남는 버그가 있었다. 지금은 연결 상태를 직접 조회해서 그 문제가 없다.
 
 **임대인-세입자 매칭 (초대 코드, db/008):** `properties` 테이블이 없어 세입자가
 자기 `landlord_id`를 알 방법이 없던 문제를, 임대인이 회원가입 시 자동 발급받는
