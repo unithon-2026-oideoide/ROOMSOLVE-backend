@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { supabaseAdmin } from '../config/supabase';
-import { getGemini, GEMINI_MODEL } from '../config/gemini';
+import { getGemini, GEMINI_MODEL, GEMINI_FALLBACK_MODEL } from '../config/gemini';
 import { AuthedRequest } from '../middleware/auth';
 import { RecommendedPath, RepairCategory } from '../types';
 
@@ -232,35 +232,47 @@ export async function analyzeReport(req: Request, res: Response) {
     return res.status(400).json({ error: err instanceof Error ? err.message : '사진을 가져오지 못했습니다.' });
   }
 
+  const request = {
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          ...imageParts,
+          {
+            text: description
+              ? `세입자 설명: ${description}\n\n위 사진과 설명을 보고 분류해 주세요.`
+              : '위 사진을 보고 분류해 주세요. 세입자가 남긴 설명은 없습니다.',
+          },
+        ],
+      },
+    ],
+    config: {
+      systemInstruction: ANALYSIS_SYSTEM_PROMPT,
+      responseMimeType: 'application/json',
+      responseJsonSchema: GEMINI_RESPONSE_SCHEMA,
+    },
+  };
+
+  // 예외 메시지에 담긴 Gemini 상태 문자열을 꺼낸다. 오류가 JSON 문자열로 오기 때문이다.
+  const geminiStatus = (err: unknown) =>
+    /"status"\s*:\s*"([A-Z_]+)"/.exec(err instanceof Error ? err.message : '')?.[1];
+
   let rawText: string | undefined;
   try {
-    const response = await gemini.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            ...imageParts,
-            {
-              text: description
-                ? `세입자 설명: ${description}\n\n위 사진과 설명을 보고 분류해 주세요.`
-                : '위 사진을 보고 분류해 주세요. 세입자가 남긴 설명은 없습니다.',
-            },
-          ],
-        },
-      ],
-      config: {
-        systemInstruction: ANALYSIS_SYSTEM_PROMPT,
-        responseMimeType: 'application/json',
-        responseJsonSchema: GEMINI_RESPONSE_SCHEMA,
-      },
-    });
-    rawText = response.text;
+    try {
+      rawText = (await gemini.models.generateContent({ model: GEMINI_MODEL, ...request })).text;
+    } catch (err) {
+      // 기본 모델이 붐빌 때만 더 가벼운 모델로 한 번 더 시도한다. 인증 오류나 잘못된
+      // 요청까지 재시도하면 같은 실패를 두 번 기다리게 될 뿐이다.
+      const status = geminiStatus(err);
+      if (status !== 'UNAVAILABLE' && status !== 'DEADLINE_EXCEEDED') throw err;
+      rawText = (await gemini.models.generateContent({ model: GEMINI_FALLBACK_MODEL, ...request })).text;
+    }
   } catch (err) {
-    // Gemini는 오류를 JSON 문자열로 담아 던진다. 그대로 내보내면 사용자에게
-    // 원문 JSON이 노출되므로, 아는 상태만 우리 상태 코드로 옮겨 준다.
+    // 그대로 내보내면 사용자에게 Gemini 원문 JSON이 노출되므로,
+    // 아는 상태만 우리 상태 코드로 옮겨 준다.
     const raw = err instanceof Error ? err.message : '';
-    const status = /"status"\s*:\s*"([A-Z_]+)"/.exec(raw)?.[1];
+    const status = geminiStatus(err);
 
     if (status === 'UNAVAILABLE' || status === 'DEADLINE_EXCEEDED') {
       return res.status(503).json({ error: 'AI 분석 서버가 혼잡합니다. 잠시 후 다시 시도해 주세요.' });
