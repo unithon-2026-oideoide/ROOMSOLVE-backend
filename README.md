@@ -90,19 +90,21 @@ signup API를 직접 태웠다).
 | 임대인 | 김임대 | `kim.landlord@gmail.com` | 초대 코드는 로그인 후 `user.landlord_code`로 확인 |
 | 세입자 | 최세입 | `choi.tenant@gmail.com` | 김임대에 연결됨 |
 | 세입자 | 심세입 | `sim.tenant@gmail.com` | 김임대에 연결됨 |
-| 수리업체(plumbing) | 새지마 종합설비 | `saejima.vendor@gmail.com` | |
-| 수리업체(electrical) | 번쩍번쩍전기 | `bunjjuk.vendor@gmail.com` | |
-| 수리업체(heating) | 훈훈보일러 | `hunhun.vendor@gmail.com` | |
-| 수리업체(appliance) | 가전주치의 | `gajeon.vendor@gmail.com` | |
-| 수리업체(door_window) | 여닫이명장 | `yeodaji.vendor@gmail.com` | `is_active=false`로 설정해 둠(매칭 필터 테스트용) |
-| 수리업체(interior) | 공간연구소 | `gonggan.vendor@gmail.com` | |
-| 수리업체(pest) | 해충제로 | `haechung.vendor@gmail.com` | |
-| 수리업체(other) | 만능해결단 | `manneung.vendor@gmail.com` | |
+| 수리업체 | 새지마 종합설비 | `saejima.vendor@gmail.com` | plumbing, heating, other |
+| 수리업체 | 번쩍번쩍전기 | `bunjjuk.vendor@gmail.com` | electrical, appliance, door_window |
+| 수리업체 | 훈훈보일러 | `hunhun.vendor@gmail.com` | heating, plumbing, appliance |
+| 수리업체 | 가전주치의 | `gajeon.vendor@gmail.com` | appliance, electrical, interior |
+| 수리업체 | 여닫이명장 | `yeodaji.vendor@gmail.com` | door_window, interior, other — `is_active=false`(매칭 필터 테스트용) |
+| 수리업체 | 공간연구소 | `gonggan.vendor@gmail.com` | interior, door_window, pest |
+| 수리업체 | 해충제로 | `haechung.vendor@gmail.com` | pest, other, heating |
+| 수리업체 | 만능해결단 | `manneung.vendor@gmail.com` | other, plumbing, electrical |
 
-8개 수리업체는 카테고리가 서로 안 겹치게 하나씩만 맡고 있다(`POST
-/api/vendors/match`로 카테고리별 결과 확인 가능). 여닫이명장만 비활성이라
-door_window로 매칭하면 빈 배열이 나오는 게 정상 — `is_active` 필터가
-실제로 걸러내는지 확인하는 용도.
+업체마다 분야를 2~3개씩 맡고 있고, 카테고리 8종 전부 최소 2곳 이상 겹치게
+설계함(`POST /api/vendors/match`로 카테고리별 결과 확인 가능) — 견적을
+여러 업체에서 받아서 중앙값/이상치 판정(`GET /api/quotes`)을 의미 있게
+테스트하려면 한 카테고리에 업체가 여럿 있어야 하기 때문. 여닫이명장만
+비활성이라 door_window/interior/other 매칭 결과에서 빠지는 게 정상 —
+`is_active` 필터가 실제로 걸러내는지 확인하는 용도.
 
 제조사 A/S(`manufacturer_as_info`), 가전 신품가(`appliance_reference_price`)
 참고 데이터는 시딩 파일이 정리되면서 같이 지워졌다 — 그 기능을 테스트하려면
@@ -219,7 +221,8 @@ DB: 컬럼(`photo_urls` 등)은 `supabase/schema.sql`에 이미 반영돼 있음
 DB: 테이블 DDL(`vendors.rating`/`is_active` 포함)은 `supabase/schema.sql`에
 이미 있음. 데모 업체 8곳은 위 "테스트 데이터" 절 표에 있는 계정으로 실제
 `POST /api/auth/signup`을 태워서 만들었음(SQL 시딩 파일은 로그인이 안 돼서
-정리하면서 지웠음) — 카테고리 8종에 업체 하나씩, 분야 안 겹침.
+정리하면서 지웠음) — 업체마다 분야 2~3개, 카테고리 8종 전부 최소 2곳 이상
+겹치게 구성(견적 비교/이상치 판정 테스트용).
 
 `quotes.status`는 DB 기본값이 `pending`이지만 B 범위에서는 `recommended` /
 `selected` / `rejected` 세 값만 쓰며, `createQuote`가 `recommended`를 명시해서 넣음.
