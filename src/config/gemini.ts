@@ -24,6 +24,13 @@ export async function getGemini(): Promise<GoogleGenAI | null> {
   return client;
 }
 
-// 이미지 이해가 되는 최신 안정 Flash 모델. 분류 작업이라 Pro까지 쓸 필요가 없고,
-// 시연 중 응답 시간이 짧은 쪽이 낫다.
-export const GEMINI_MODEL = 'gemini-3.7-flash';
+// 분류 작업이라 Pro까지 쓸 필요가 없고, 시연 중에는 응답 시간이 짧은 쪽이 낫다.
+//
+// 2026-08-25 실측: gemini-3.7-flash는 같은 요청에 20초가 걸리고 503(UNAVAILABLE)이
+// 자주 떴다. 3.6-flash는 3초 안쪽으로 안정적이라 이쪽을 기본으로 쓴다.
+// 최신 모델일수록 수요가 몰려 느린 시기가 있으니, 시연 전에 한 번 재보고 정할 것.
+export const GEMINI_MODEL = 'gemini-3.6-flash';
+
+// 기본 모델이 과부하일 때 한 번 더 시도할 모델. 더 가볍고 그만큼 덜 붐빈다.
+// 분류 품질이 조금 떨어지더라도 시연 중 503으로 멈추는 것보다 낫다.
+export const GEMINI_FALLBACK_MODEL = 'gemini-3.5-flash-lite';
