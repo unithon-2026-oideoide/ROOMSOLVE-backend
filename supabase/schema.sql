@@ -1,8 +1,15 @@
--- ROOMSOLVE 스키마
+-- ROOMSOLVE 스키마 — 현재 Supabase에 적용돼 있는 상태를 그대로 옮겨 적은 파일.
 --
--- 실행 방법: Supabase 대시보드 > SQL Editor에 전체를 붙여넣고 Run.
--- 빈 DB를 전제로 한다. 이미 만들어진 테이블이 있으면 그 지점에서 에러가 나므로,
--- 실행 전에 Table Editor에서 기존 테이블 유무를 먼저 확인할 것.
+-- ⚠️ 이 파일을 지금 Supabase에 Run하지 말 것. 테이블은 이미 전부 존재하므로
+--    create table에서 에러가 난다. 새 DB를 처음부터 만들 때만 쓰는 파일이고,
+--    평소에는 "지금 DB가 어떤 모양인지" 확인하는 용도로 읽는다.
+--
+-- 스키마를 바꿀 때는 이 파일을 고치는 것으로 끝내지 말고, db/ 에 번호를 붙인
+-- 마이그레이션(alter table ...)을 추가해서 실제 DB에 적용한 뒤 이 파일도 같이
+-- 갱신할 것. Supabase 프로젝트가 하나뿐이라 DDL은 실행 즉시 전원에게 반영된다.
+--
+--   db/001_vendor_matching.sql      vendors 시딩 15개 (데이터만)
+--   db/002_vendors_rating_active.sql vendors.rating / is_active 추가 + quotes 부분 인덱스
 --
 -- 공용 값 목록 (여러 테이블이 조인 키로 함께 쓰므로 바꿀 때는 전부 같이 바꿀 것)
 --   category : plumbing | electrical | heating | appliance | door_window | interior | pest | other
@@ -10,7 +17,10 @@
 --   recommended_path : self_fix | manufacturer_as | vendor_match
 --   role     : tenant | landlord | technician
 --
--- status 계열은 아직 값이 확정되지 않아 CHECK를 걸지 않았다. 확정되면 조일 것.
+-- status 계열은 CHECK를 걸지 않았다. 현재 쓰이는 값은 아래와 같다.
+--   reports.status                : pending (신규 생성 시)
+--   quotes.status                 : recommended | selected
+--   repair_status_timeline.status : scheduled | confirmed | in_progress | done
 
 
 -- ---------------------------------------------------------------------------
@@ -42,7 +52,8 @@ create table public.reports (
   id               uuid primary key default gen_random_uuid(),
   tenant_id        uuid not null references public.users (id) on delete cascade,
   landlord_id      uuid not null references public.users (id) on delete cascade,
-  photo_url        text,
+  -- 사진 없는 신고는 받지 않는다. POST /api/uploads로 먼저 올린 뒤 그 url을 넘긴다.
+  photo_url        text not null,
   description      text,
   category         text check (category in ('plumbing', 'electrical', 'heating', 'appliance',
                                             'door_window', 'interior', 'pest', 'other')),
@@ -51,7 +62,7 @@ create table public.reports (
   -- 자가조치 가이드. 지금은 types/index.ts의 `self_fix_guide: string | null`에 맞춰 text다.
   -- 단계 배열({ steps, caution }) 형태로 확정되면 jsonb로 바꾸고 타입도 같이 고칠 것.
   self_fix_guide   text,
-  status           text not null default 'requested',
+  status           text not null default 'pending',
   created_at       timestamptz not null default now()
 );
 
@@ -87,6 +98,10 @@ create table public.vendors (
              ),
   region     text,
   phone      text,
+  -- rating / is_active 는 db/002_vendors_rating_active.sql 로 나중에 추가된 컬럼.
+  -- matchVendors가 is_active로 필터하므로 매칭 API에 필수다.
+  rating     numeric(2,1) not null default 0.0,
+  is_active  boolean      not null default true,
   created_at timestamptz not null default now()
 );
 
@@ -111,6 +126,10 @@ create table public.quotes (
 
 create index quotes_report_id_idx on public.quotes (report_id);
 
+-- 한 report에서 selected는 하나만. db/002_vendors_rating_active.sql로 추가됐다.
+create unique index quotes_one_selected_per_report_idx
+  on public.quotes (report_id) where status = 'selected';
+
 
 -- ---------------------------------------------------------------------------
 -- landlord_auto_approval_policy : 임대인이 카테고리별로 정해둔 자동승인 한도.
@@ -118,8 +137,8 @@ create index quotes_report_id_idx on public.quotes (report_id);
 -- (landlord_id, category)에 unique를 걸었다. 이게 없으면 같은 임대인이 같은
 -- 카테고리 정책을 두 번 저장했을 때 중복 행이 쌓이고 어느 한도가 적용될지
 -- 알 수 없어진다.
--- 주의: landlord.controller.ts의 createAutoApprovalPolicy는 지금 insert라서,
--- 같은 카테고리를 다시 저장하면 409로 실패한다. upsert로 바꿔야 한다.
+-- landlord.controller.ts의 createAutoApprovalPolicy는 이 제약을 충돌 대상으로 삼아
+-- upsert한다. 같은 카테고리를 다시 저장하면 한도가 덮어써진다.
 -- ---------------------------------------------------------------------------
 create table public.landlord_auto_approval_policy (
   id                 uuid primary key default gen_random_uuid(),
