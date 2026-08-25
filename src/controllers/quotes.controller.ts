@@ -256,14 +256,31 @@ export async function updateQuoteStatus(req: Request, res: Response) {
     return res.status(400).json({ error: `status는 ${VALID_QUOTE_STATUSES.join('|')} 중 하나여야 합니다.` });
   }
 
-  const { data: target } = await supabaseAdmin
+  // maybeSingle()을 쓰고 error/target을 따로 확인한다. single()은 0건일 때도
+  // error를 채우는데, 예전 코드는 그 error를 버리고 target만 봐서 "견적 없음"과
+  // "조회 자체가 실패함"(네트워크/권한 등 진짜 500 상황)을 구분하지 못하고
+  // 둘 다 404로 응답했다.
+  const { data: target, error: targetError } = await supabaseAdmin
     .from('quotes')
-    .select('id, report_id, vendor_id, proposed_visit_at')
+    .select('id, report_id, vendor_id, proposed_visit_at, status')
     .eq('id', id)
-    .single();
+    .maybeSingle();
 
+  if (targetError) {
+    return res.status(500).json({ error: targetError.message });
+  }
   if (!target) {
     return res.status(404).json({ error: '견적을 찾을 수 없습니다.' });
+  }
+
+  // 이미 selected인 견적을 다른 상태로 옮기는 요청은 막는다. selected가 되는
+  // 순간 repair_schedule이 자동 생성되고(confirmed) reports.status도 approved로
+  // 올라간다 — 여기서 조용히 다른 상태로 바꾸면 이미 만들어진 일정/승인 상태가
+  // 고아로 남아 서로 어긋난다. 되돌리려면 별도의 취소 플로우가 필요하다.
+  if (target.status === 'selected' && status !== 'selected') {
+    return res.status(409).json({
+      error: '이미 선택된 견적의 상태는 이 API로 바꿀 수 없습니다. 방문 일정이 이미 생성되어 있습니다.',
+    });
   }
 
   if (status === 'selected') {

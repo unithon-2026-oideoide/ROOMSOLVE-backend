@@ -1,10 +1,14 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler';
+import { requireAuth } from '../middleware/auth';
 import { listVendorRequests, matchVendors } from '../controllers/vendors.controller';
 
 // 전문업체 매칭 (팀원B). 구현: src/controllers/vendors.controller.ts
 
 const router = Router();
+
+// 로그인 필수. 이전에는 인증이 없어서 누구나 신고 목록(연락처 포함)을 조회할 수 있었다.
+router.use(requireAuth);
 
 /**
  * @swagger

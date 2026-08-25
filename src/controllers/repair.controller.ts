@@ -72,8 +72,11 @@ export async function listSchedules(req: Request, res: Response) {
   let query = supabaseAdmin
     .from('repair_schedule')
     // 기사 홈의 "배정된 작업" 목록이 카드에 뿌릴 신고 내용(카테고리/설명/사진)을 같이 내려 준다.
-    // 이게 없으면 프론트가 일정 건수만큼 GET /api/reports/:id를 다시 불러야 한다.
-    .select('*, technician:users(id, name, phone), report:reports(id, category, severity, description, photo_url, status, available_times)')
+    // 이게 없으면 프론트가 일정 건수만큼 GET /api/reports/:id를 다시 불러야 하는데,
+    // 그 엔드포인트는 tenant_id로 스코프돼 있어 기사가 부르면 항상 404다 — 그래서
+    // photo_urls/created_at까지 여기서 전부 내려줘서 프론트가 그 호출을 할 필요가
+    // 아예 없게 한다(technician_job_loader.dart).
+    .select('*, technician:users(id, name, phone), report:reports(id, category, severity, description, photo_url, photo_urls, status, available_times, created_at)')
     .order('scheduled_at', { ascending: true });
 
   if (reportId) query = query.eq('report_id', reportId);

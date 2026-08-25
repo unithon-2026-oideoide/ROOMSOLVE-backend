@@ -262,12 +262,19 @@ reportsRouter.get('/:id', asyncHandler(getReport));
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: 분석 성공
+ *         description: >
+ *           분석 성공. 고장난 것이 가전이 아니면 appliance는 null이다. 가전이면
+ *           appliance.questions에 아직 답하지 않은 보충 질문(ownership/purchase_age)이
+ *           담겨 오고, 이 경우 appliance.liability는 null이다(요청 body의 answers에
+ *           그 질문들의 답을 채워 같은 엔드포인트를 다시 호출하면 된다). 질문에 모두
+ *           답하면 appliance.liability/basis/notice/warning/confidence/blockVendorMatch가
+ *           채워지고, 최상위 recommended_path도 이 판정(judgeAppliance)이 정한 값으로
+ *           덮어써진다 — LLM의 1차 추측보다 이 규칙 기반 판정이 우선한다.
  *         content:
  *           application/json:
  *             schema:
  *               type: object
- *               required: [category, severity, recommended_path, self_fix_guide]
+ *               required: [category, severity, recommended_path, self_fix_guide, appliance_type, appliance]
  *               properties:
  *                 category:
  *                   type: string
@@ -282,6 +289,16 @@ reportsRouter.get('/:id', asyncHandler(getReport));
  *                   type: string
  *                   nullable: true
  *                   description: recommended_path가 self_fix일 때만 채워지고, 그 외에는 null이다.
+ *                 appliance_type:
+ *                   type: string
+ *                   nullable: true
+ *                   enum: [aircon, boiler, induction, refrigerator, washer]
+ *                   description: 고장난 것이 가전으로 보이면 종류, 아니면 null.
+ *                 appliance:
+ *                   nullable: true
+ *                   allOf:
+ *                     - $ref: '#/components/schemas/ApplianceJudgement'
+ *                   description: appliance_type이 null이면 이 필드도 null이다.
  *       400:
  *         description: photo_urls 누락 또는 빈 배열
  *         content:
