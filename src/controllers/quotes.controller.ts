@@ -21,6 +21,100 @@ export function isOutlier(price: number, med: number | null): boolean {
   return med !== null && price > med * OUTLIER_MULTIPLIER;
 }
 
+// ---------------------------------------------------------------------------
+// 견적 순위
+//
+// 임대인이 고르는 기준은 가격과 업체 평점 둘뿐이다. 두 값을 각각 0~1로 정규화해
+// 가중합한 점수로 줄을 세우고, 1위를 추천으로 표시한다.
+//
+// 저장하지 않고 조회 시점에 계산한다 — is_outlier 컬럼을 버린 것과 같은 이유다.
+// 견적이 하나 더 들어오면 최저가가 바뀌어 모든 순위가 움직이므로, 저장해두면
+// 그 순간 전부 낡은 값이 된다.
+// ---------------------------------------------------------------------------
+
+// 가격에 더 큰 비중을 둔다. 수리비를 부담하는 쪽이 임대인이라, 평점이 조금 높다고
+// 가격 차이를 뒤집으면 납득하기 어렵다.
+const PRICE_WEIGHT = 0.6;
+const RATING_WEIGHT = 0.4;
+const MAX_RATING = 5;
+
+export interface RankedQuoteInput {
+  id: string;
+  price: number;
+  rating: number | null;
+}
+
+export interface QuoteRanking {
+  id: string;
+  rank: number;
+  score: number;
+  isRecommended: boolean;
+  recommendReason: string | null;
+}
+
+// 최저가 대비 비율. 최저가가 1.0이고 비쌀수록 0에 가까워진다.
+// 가격이 0원인 견적(무상 수리 등)이 섞이면 나눗셈이 깨지므로 그때는 전부 1.0으로 둔다.
+function priceScore(price: number, minPrice: number): number {
+  if (minPrice <= 0) return 1;
+  return minPrice / price;
+}
+
+// 평점이 없는 업체(가입 직후 rating 0)는 중간값으로 취급한다. 0으로 두면
+// 신규 업체가 가격과 무관하게 항상 꼴찌가 된다.
+function ratingScore(rating: number | null): number {
+  if (rating === null || rating <= 0) return 0.5;
+  return Math.min(rating, MAX_RATING) / MAX_RATING;
+}
+
+export function rankQuotes(quotes: RankedQuoteInput[]): QuoteRanking[] {
+  if (quotes.length === 0) return [];
+
+  const minPrice = Math.min(...quotes.map((q) => q.price));
+  const best = quotes.reduce((a, b) => (a.price <= b.price ? a : b));
+  const topRated = quotes.reduce((a, b) => ((a.rating ?? 0) >= (b.rating ?? 0) ? a : b));
+
+  const scored = quotes.map((q) => ({
+    q,
+    score: PRICE_WEIGHT * priceScore(q.price, minPrice) + RATING_WEIGHT * ratingScore(q.rating),
+  }));
+
+  // 점수가 같으면 싼 쪽이 앞. 그것도 같으면 id로 고정해 순서가 요청마다 흔들리지 않게 한다.
+  scored.sort((a, b) => b.score - a.score || a.q.price - b.q.price || a.q.id.localeCompare(b.q.id));
+
+  return scored.map((s, i) => ({
+    id: s.q.id,
+    rank: i + 1,
+    score: Number(s.score.toFixed(4)),
+    isRecommended: i === 0,
+    recommendReason: i === 0 ? buildReason(s.q, best, topRated, quotes.length) : null,
+  }));
+}
+
+// 1위가 왜 1위인지 한 줄로 설명한다. 최저가이면서 평점도 최고면 그렇게 말하고,
+// 어느 한쪽을 양보한 경우에는 얼마를 더 내고 무엇을 얻는지 숫자로 밝힌다.
+function buildReason(
+  winner: RankedQuoteInput,
+  cheapest: RankedQuoteInput,
+  topRated: RankedQuoteInput,
+  total: number
+): string {
+  if (total === 1) return '제출된 견적이 하나뿐입니다.';
+
+  const isCheapest = winner.price === cheapest.price;
+  const isTopRated = (winner.rating ?? 0) >= (topRated.rating ?? 0);
+
+  if (isCheapest && isTopRated) return '최저가이면서 평점도 가장 높습니다.';
+  if (isCheapest) return `최저가입니다. 평점은 ${(winner.rating ?? 0).toFixed(1)}점입니다.`;
+
+  const extra = winner.price - cheapest.price;
+  const percent = Math.round((extra / cheapest.price) * 100);
+  const gap = (winner.rating ?? 0) - (cheapest.rating ?? 0);
+  if (gap > 0) {
+    return `최저가보다 ${extra.toLocaleString('ko-KR')}원(${percent}%) 비싸지만 평점이 ${gap.toFixed(1)}점 높습니다.`;
+  }
+  return `가격과 평점을 함께 고려한 결과입니다. 평점 ${(winner.rating ?? 0).toFixed(1)}점.`;
+}
+
 const APPLIANCE_TYPES: ApplianceType[] = ['aircon', 'boiler', 'induction', 'refrigerator', 'washer'];
 
 // 수리비가 동급 신품가의 이 비율 이상이면 교체를 권한다.
@@ -120,14 +214,34 @@ export async function listQuotes(req: Request, res: Response) {
     return res.status(500).json({ error: error.message });
   }
 
-  const rows = (data ?? []) as Quote[];
+  const rows = (data ?? []) as (Quote & { vendor?: { rating: number | null } | null })[];
   const med = median(rows.map((q) => q.price));
+
+  // 이미 거절된 견적은 순위에서 뺀다. 임대인이 고를 수 없는 것을 1위로 올리면 안 된다.
+  const rankable = rows.filter((q) => q.status !== 'rejected');
+  const rankings = new Map(
+    rankQuotes(rankable.map((q) => ({ id: q.id, price: q.price, rating: q.vendor?.rating ?? null })))
+      .map((r) => [r.id, r])
+  );
+
   // DB의 is_outlier 컬럼은 쓰지 않는다 — median은 견적이 하나 추가될 때마다 움직여서
   // 저장해두면 기존 행 값이 낡는다. 조회 시점에 계산해서 응답에만 싣고 컬럼은 버린다.
   const quotes = rows.map(({ is_outlier: _unused, ...q }) => {
     const outlier = isOutlier(q.price, med);
-    return { ...q, isOutlier: outlier, outlierReason: outlier ? OUTLIER_REASON : null };
+    const ranking = rankings.get(q.id);
+    return {
+      ...q,
+      isOutlier: outlier,
+      outlierReason: outlier ? OUTLIER_REASON : null,
+      rank: ranking?.rank ?? null,
+      score: ranking?.score ?? null,
+      isRecommended: ranking?.isRecommended ?? false,
+      recommendReason: ranking?.recommendReason ?? null,
+    };
   });
+
+  // 추천이 맨 위로 오도록 순위순 정렬. 거절된 견적(rank 없음)은 뒤로 보낸다.
+  quotes.sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity));
 
   return res.json({
     quotes,
