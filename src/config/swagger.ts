@@ -88,15 +88,30 @@ const swaggerSpec = swaggerJSDoc({
           },
         },
         Quote: {
+          description: '견적 원본 레코드 (DB row 그대로). GET /api/quotes 목록 조회에서는 is_outlier 대신 isOutlier/outlierReason이 계산되어 내려온다.',
           type: 'object',
           properties: {
             id: { type: 'string', format: 'uuid' },
             report_id: { type: 'string', format: 'uuid' },
             vendor_id: { type: 'string', format: 'uuid' },
             price: { type: 'integer', example: 80000 },
-            status: { type: 'string', example: 'pending' },
-            is_outlier: { type: 'boolean' },
+            status: { type: 'string', enum: ['recommended', 'selected'] },
+            is_outlier: { type: 'boolean', description: 'DB 컬럼이지만 사용하지 않음 (항상 false)' },
             created_at: { type: 'string', format: 'date-time' },
+          },
+        },
+        QuoteWithOutlierInfo: {
+          description: 'GET /api/quotes 목록의 각 항목 — is_outlier 컬럼 대신 조회 시점에 계산한 isOutlier/outlierReason을 담음.',
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            report_id: { type: 'string', format: 'uuid' },
+            vendor_id: { type: 'string', format: 'uuid' },
+            price: { type: 'integer', example: 80000 },
+            status: { type: 'string', enum: ['recommended', 'selected'] },
+            created_at: { type: 'string', format: 'date-time' },
+            isOutlier: { type: 'boolean', description: '해당 report 견적들의 중앙값 * 2를 초과하면 true' },
+            outlierReason: { type: 'string', nullable: true, example: '평균 대비 과도하게 높음' },
           },
         },
         Vendor: {
@@ -111,9 +126,34 @@ const swaggerSpec = swaggerJSDoc({
                 enum: ['plumbing', 'electrical', 'heating', 'appliance', 'door_window', 'interior', 'pest', 'other'],
               },
             },
-            region: { type: 'string', nullable: true },
+            region: { type: 'string', nullable: true, description: '컬럼만 존재 — 매칭 필터에는 아직 미사용' },
             phone: { type: 'string', nullable: true },
+            rating: { type: 'number', description: 'db/002_vendors_rating_active.sql 실행 후에만 응답에 존재' },
+            is_active: { type: 'boolean', description: 'db/002_vendors_rating_active.sql 실행 후에만 응답에 존재. POST /api/vendors/match가 이 값으로 필터링함' },
             created_at: { type: 'string', format: 'date-time' },
+          },
+        },
+        RepairSchedule: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            report_id: { type: 'string', format: 'uuid' },
+            technician_id: { type: 'string', format: 'uuid' },
+            scheduled_at: { type: 'string', format: 'date-time' },
+            confirmed: { type: 'boolean' },
+          },
+        },
+        RepairStatusTimelineEntry: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            report_id: { type: 'string', format: 'uuid' },
+            status: {
+              type: 'string',
+              description: 'DB에 CHECK 제약 없는 자유 문자열. 프론트와 맞춘 값은 scheduled/confirmed/in_progress/done 정도.',
+              example: 'confirmed',
+            },
+            changed_at: { type: 'string', format: 'date-time' },
           },
         },
         ManufacturerAsInfo: {
