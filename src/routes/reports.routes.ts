@@ -72,6 +72,8 @@ reportsRouter.use(requireAuth);
  *               self_fix_guide:
  *                 type: string
  *                 nullable: true
+ *     security:
+ *       - bearerAuth: []
  *     responses:
  *       201:
  *         description: 생성 성공
@@ -120,6 +122,8 @@ reportsRouter.post('/', asyncHandler(createReport));
  *           type: string
  *           example: pending
  *         description: 상태로 거르기 (생략 시 전체)
+ *     security:
+ *       - bearerAuth: []
  *     responses:
  *       200:
  *         description: 목록 조회 성공
@@ -163,6 +167,8 @@ reportsRouter.get('/', asyncHandler(listReports));
  *         schema:
  *           type: string
  *           format: uuid
+ *     security:
+ *       - bearerAuth: []
  *     responses:
  *       200:
  *         description: 조회 성공
@@ -225,6 +231,8 @@ reportsRouter.get('/:id', asyncHandler(getReport));
  *                 type: string
  *                 nullable: true
  *                 description: 세입자가 남긴 설명. 있으면 판정 정확도가 올라간다.
+ *     security:
+ *       - bearerAuth: []
  *     responses:
  *       200:
  *         description: 분석 성공
