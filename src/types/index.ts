@@ -30,7 +30,7 @@ export interface Report {
   id: string;
   tenant_id: string;
   landlord_id: string;
-  photo_url: string | null;
+  photo_url: string;
   description: string | null;
   category: string | null;
   severity: string | null;
